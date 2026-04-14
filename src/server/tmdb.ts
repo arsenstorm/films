@@ -1,0 +1,204 @@
+import { createServerFn } from "@tanstack/react-start";
+
+import type { MediaType } from "@/lib/media";
+import type {
+	Movie,
+	MovieDetails,
+	MovieParams,
+	MovieResponse,
+	ShowDetails,
+	ShowParams,
+	ShowResponse,
+	WatchProviderResponse,
+} from "@/lib/tmdb";
+
+const TMDB_API_BASE_URL = "https://api.themoviedb.org/3";
+const MARQUEE_PAGE_COUNT = 4;
+
+function appendDefinedSearchParams(
+	searchParams: URLSearchParams,
+	values: Record<string, string | number | boolean | undefined>
+): void {
+	for (const [key, value] of Object.entries(values)) {
+		if (value !== undefined) {
+			searchParams.append(key, String(value));
+		}
+	}
+}
+
+async function fetchFromTmdb<T>(
+	endpoint: string,
+	searchParams: URLSearchParams
+): Promise<T> {
+	const apiKey = process.env.TMDB_API_KEY;
+
+	if (!apiKey) {
+		throw new Error("TMDB_API_KEY is not configured.");
+	}
+
+	const response = await fetch(
+		`${TMDB_API_BASE_URL}/${endpoint}?${searchParams.toString()}`,
+		{
+			headers: {
+				Accept: "application/json",
+				Authorization: `Bearer ${apiKey}`,
+			},
+		}
+	);
+
+	if (!response.ok) {
+		throw new Error(
+			`TMDB request failed: ${response.status} ${response.statusText}`
+		);
+	}
+
+	return (await response.json()) as T;
+}
+
+export function getMovies(params: MovieParams = {}): Promise<MovieResponse> {
+	const { type = "discover", ...restParams } = params;
+	const searchParams = new URLSearchParams();
+
+	appendDefinedSearchParams(
+		searchParams,
+		restParams as Record<string, string | number | boolean | undefined>
+	);
+
+	if (!searchParams.has("page")) {
+		searchParams.set("page", "1");
+	}
+
+	const endpoint = type === "discover" ? "discover/movie" : `movie/${type}`;
+
+	return fetchFromTmdb<MovieResponse>(endpoint, searchParams);
+}
+
+export function searchMovies(query: string, page = 1): Promise<MovieResponse> {
+	const searchParams = new URLSearchParams();
+	searchParams.set("query", query);
+	searchParams.set("page", String(page));
+
+	return fetchFromTmdb<MovieResponse>("search/movie", searchParams);
+}
+
+export function getShows(params: ShowParams = {}): Promise<ShowResponse> {
+	const { type = "discover", ...restParams } = params;
+	const searchParams = new URLSearchParams();
+
+	appendDefinedSearchParams(
+		searchParams,
+		restParams as Record<string, string | number | boolean | undefined>
+	);
+
+	if (!searchParams.has("page")) {
+		searchParams.set("page", "1");
+	}
+
+	const endpoint = type === "discover" ? "discover/tv" : `tv/${type}`;
+
+	return fetchFromTmdb<ShowResponse>(endpoint, searchParams);
+}
+
+export function searchTvShows(query: string, page = 1): Promise<ShowResponse> {
+	const searchParams = new URLSearchParams();
+	searchParams.set("query", query);
+	searchParams.set("page", String(page));
+
+	return fetchFromTmdb<ShowResponse>("search/tv", searchParams);
+}
+
+export function getMovieById(id: number): Promise<MovieDetails> {
+	return fetchFromTmdb<MovieDetails>(`movie/${id}`, new URLSearchParams());
+}
+
+export function getShowById(id: number): Promise<ShowDetails> {
+	return fetchFromTmdb<ShowDetails>(`tv/${id}`, new URLSearchParams());
+}
+
+export function getMediaById(
+	type: MediaType,
+	id: number
+): Promise<MovieDetails | ShowDetails> {
+	return type === "movies" ? getMovieById(id) : getShowById(id);
+}
+
+export function getMovieWatchProviders(
+	id: number
+): Promise<WatchProviderResponse> {
+	return fetchFromTmdb<WatchProviderResponse>(
+		`movie/${id}/watch/providers`,
+		new URLSearchParams()
+	);
+}
+
+export function getShowWatchProviders(
+	id: number
+): Promise<WatchProviderResponse> {
+	return fetchFromTmdb<WatchProviderResponse>(
+		`tv/${id}/watch/providers`,
+		new URLSearchParams()
+	);
+}
+
+export function getMediaWatchProviders(
+	type: MediaType,
+	id: number
+): Promise<WatchProviderResponse> {
+	return type === "movies"
+		? getMovieWatchProviders(id)
+		: getShowWatchProviders(id);
+}
+
+export async function getMarqueeMovies(): Promise<Movie[]> {
+	const responses = await Promise.all(
+		Array.from({ length: MARQUEE_PAGE_COUNT }, (_, index) =>
+			getMovies({ page: index + 1, type: "popular" })
+		)
+	);
+
+	const moviesById = new Map<number, Movie>();
+
+	for (const response of responses) {
+		for (const movie of response.results) {
+			moviesById.set(movie.id, movie);
+		}
+	}
+
+	return [...moviesById.values()];
+}
+
+export const getMoviesFn = createServerFn({ method: "GET" })
+	.inputValidator((data: MovieParams | undefined) => data ?? {})
+	.handler(async ({ data }) => getMovies(data));
+
+export const searchMoviesFn = createServerFn({ method: "GET" })
+	.inputValidator((data: { page?: number; query: string }) => data)
+	.handler(async ({ data }) => searchMovies(data.query, data.page));
+
+export const getShowsFn = createServerFn({ method: "GET" })
+	.inputValidator((data: ShowParams | undefined) => data ?? {})
+	.handler(async ({ data }) => getShows(data));
+
+export const searchTvShowsFn = createServerFn({ method: "GET" })
+	.inputValidator((data: { page?: number; query: string }) => data)
+	.handler(async ({ data }) => searchTvShows(data.query, data.page));
+
+export const getMovieByIdFn = createServerFn({ method: "GET" })
+	.inputValidator((data: { id: number }) => data)
+	.handler(async ({ data }) => getMovieById(data.id));
+
+export const getShowByIdFn = createServerFn({ method: "GET" })
+	.inputValidator((data: { id: number }) => data)
+	.handler(async ({ data }) => getShowById(data.id));
+
+export const getMediaByIdFn = createServerFn({ method: "GET" })
+	.inputValidator((data: { id: number; type: MediaType }) => data)
+	.handler(async ({ data }) => getMediaById(data.type, data.id));
+
+export const getMediaWatchProvidersFn = createServerFn({ method: "GET" })
+	.inputValidator((data: { id: number; type: MediaType }) => data)
+	.handler(async ({ data }) => getMediaWatchProviders(data.type, data.id));
+
+export const getMarqueeMoviesFn = createServerFn({ method: "GET" }).handler(
+	async () => getMarqueeMovies()
+);

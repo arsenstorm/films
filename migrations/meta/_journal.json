@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1774652510386,
+      "tag": "0000_classy_hellcat",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1774695934131,
+      "tag": "0001_late_onslaught",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1774697712078,
+      "tag": "0002_common_captain_midlands",
+      "breakpoints": true
+    }
+  ]
+}

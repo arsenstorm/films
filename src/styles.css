@@ -1,0 +1,237 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+	font-family:
+		"DM Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+		"Segoe UI", sans-serif;
+	color: #09090b;
+	color-scheme: light;
+	background: #f4f4f5;
+}
+
+html {
+	background: #f4f4f5;
+}
+
+html.dark {
+	color: #fafafa;
+	color-scheme: dark;
+	background: #09090b;
+}
+
+body {
+	min-height: 100vh;
+	margin: 0;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	color: #09090b;
+	background: #f4f4f5;
+}
+
+html.dark body {
+	color: #fafafa;
+	background: #09090b;
+}
+
+.theme-transition-disabled,
+.theme-transition-disabled *,
+.theme-transition-disabled *::before,
+.theme-transition-disabled *::after {
+	transition: none !important;
+}
+
+button,
+input,
+textarea,
+select {
+	font: inherit;
+}
+
+@keyframes films-marquee {
+	from {
+		transform: translate3d(-50%, 0, 0);
+	}
+
+	to {
+		transform: translate3d(0, 0, 0);
+	}
+}
+
+.films-marquee-track {
+	display: flex;
+	gap: 0.75rem;
+	width: max-content;
+	animation: films-marquee var(--films-marquee-duration, 36s) linear infinite;
+}
+
+.films-marquee-row {
+	display: flex;
+	gap: 0.75rem;
+}
+
+@keyframes films-marquee-card-enter {
+	from {
+		opacity: 0;
+	}
+
+	to {
+		opacity: 1;
+	}
+}
+
+.films-marquee-card {
+	opacity: 0;
+	animation: films-marquee-card-enter var(--films-marquee-card-duration, 0.64s)
+		cubic-bezier(0.23, 1, 0.32, 1) var(--films-marquee-card-delay, 0s) both;
+}
+
+@keyframes films-view-root-enter {
+	from {
+		opacity: 0;
+		transform: translate3d(0, 2rem, 0) scale(0.985);
+	}
+
+	to {
+		opacity: 1;
+		transform: translate3d(0, 0, 0) scale(1);
+	}
+}
+
+@keyframes films-view-root-exit {
+	from {
+		opacity: 1;
+		transform: translate3d(0, 0, 0) scale(1);
+	}
+
+	to {
+		opacity: 0;
+		transform: translate3d(0, -1.25rem, 0) scale(0.985);
+	}
+}
+
+@keyframes films-view-root-return {
+	from {
+		opacity: 0;
+		transform: translate3d(0, -1rem, 0) scale(1.01);
+	}
+
+	to {
+		opacity: 1;
+		transform: translate3d(0, 0, 0) scale(1);
+	}
+}
+
+@keyframes films-view-root-close {
+	from {
+		opacity: 1;
+		transform: translate3d(0, 0, 0) scale(1);
+	}
+
+	to {
+		opacity: 0;
+		transform: translate3d(0, 1.75rem, 0) scale(0.985);
+	}
+}
+
+@keyframes films-view-secondary-enter {
+	from {
+		opacity: 0;
+		transform: translate3d(0, 1.5rem, 0) scale(0.98);
+	}
+
+	to {
+		opacity: 1;
+		transform: translate3d(0, 0, 0) scale(1);
+	}
+}
+
+@keyframes films-view-secondary-exit {
+	from {
+		opacity: 1;
+		transform: translate3d(0, 0, 0) scale(1);
+	}
+
+	to {
+		opacity: 0;
+		transform: translate3d(0, 1.25rem, 0) scale(0.98);
+	}
+}
+
+::view-transition-group(.media-detail-secondary) {
+	animation-duration: 0.48s;
+	animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+	animation-fill-mode: both;
+}
+
+::view-transition-group(.media-detail-poster) {
+	animation-duration: 0.48s;
+	animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+	animation-fill-mode: both;
+}
+
+html:active-view-transition-type(media-detail-enter)::view-transition-old(
+		root
+	) {
+	animation: 0.34s cubic-bezier(0.4, 0, 1, 1) both films-view-root-exit;
+}
+
+html:active-view-transition-type(media-detail-enter)::view-transition-new(
+		root
+	) {
+	animation: 0.54s cubic-bezier(0.22, 1, 0.36, 1) both films-view-root-enter;
+}
+
+html:active-view-transition-type(media-detail-enter)::view-transition-new(
+		.media-detail-secondary
+	) {
+	animation-name: films-view-secondary-enter;
+	animation-delay: 0.08s;
+}
+
+html:active-view-transition-type(media-detail-enter)::view-transition-new(
+		.media-detail-poster
+	) {
+	animation-name: films-view-secondary-enter;
+	animation-delay: 0.08s;
+}
+
+html:active-view-transition-type(media-detail-exit)::view-transition-old(root) {
+	animation: 0.36s cubic-bezier(0.4, 0, 1, 1) both films-view-root-close;
+}
+
+html:active-view-transition-type(media-detail-exit)::view-transition-new(root) {
+	animation: 0.5s cubic-bezier(0.22, 1, 0.36, 1) both films-view-root-return;
+}
+
+html:active-view-transition-type(media-detail-exit)::view-transition-old(
+		.media-detail-secondary
+	) {
+	animation: 0.24s cubic-bezier(0.4, 0, 1, 1) both films-view-secondary-exit;
+}
+
+html:active-view-transition-type(media-detail-exit)::view-transition-old(
+		.media-detail-poster
+	) {
+	animation: 0.12s cubic-bezier(0.4, 0, 1, 1) both films-view-secondary-exit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.films-marquee-track {
+		animation: none;
+	}
+
+	.films-marquee-card {
+		opacity: 1;
+		animation: none;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	::view-transition-group(*),
+	::view-transition-new(*),
+	::view-transition-old(*) {
+		animation-duration: 0.001ms !important;
+		animation-delay: 0s !important;
+	}
+}

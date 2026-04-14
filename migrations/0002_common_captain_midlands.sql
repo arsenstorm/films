@@ -1,0 +1,1 @@
+ALTER TABLE `user` ADD `special` integer DEFAULT false NOT NULL;
