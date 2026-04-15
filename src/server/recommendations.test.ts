@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	buildRecommendationBatch,
+	buildRecommendationScoreBreakdown,
 	buildRecommendationTasteProfile,
 	createRecommendationReason,
-	pickRecommendationCandidate,
-	scoreRecommendationCandidate,
-} from "@/server/recommendations";
+	pickRecommendationBatch,
+	type RecommendationCandidate,
+	type RecommendationImpressionRow,
+} from "@/server/recommendations-engine";
 
 function createMovieCandidate(
 	overrides: Partial<{
@@ -13,11 +16,12 @@ function createMovieCandidate(
 		genreIds: number[];
 		id: number;
 		popularity: number;
-		source: "discover" | "watchlist";
+		seedTitle: string | null;
+		source: "discover" | "related" | "watchlist";
 		title: string;
 		voteCount: number;
 	}>
-) {
+): RecommendationCandidate {
 	return {
 		explicitInterestScore: overrides.explicitInterestScore ?? 0,
 		media: {
@@ -38,175 +42,209 @@ function createMovieCandidate(
 			vote_count: overrides.voteCount ?? 1000,
 		},
 		popularity: overrides.popularity ?? 40,
+		seedTitle: overrides.seedTitle,
 		source: overrides.source ?? "discover",
 		voteCount: overrides.voteCount ?? 1000,
 	};
 }
 
-function createShowCandidate(
-	overrides: Partial<{
-		explicitInterestScore: number;
-		genreIds: number[];
-		id: number;
-		popularity: number;
-		source: "discover" | "watchlist";
-		title: string;
-		voteCount: number;
-	}>
-) {
+function createImpressionRow(overrides: Partial<RecommendationImpressionRow>) {
 	return {
-		explicitInterestScore: overrides.explicitInterestScore ?? 0,
-		media: {
-			adult: false,
-			backdrop_path: null,
-			first_air_date: "2024-01-01",
-			genre_ids: overrides.genreIds ?? [18],
-			id: overrides.id ?? 2,
-			mediaType: "tv" as const,
-			name: overrides.title ?? "Candidate Show",
-			origin_country: [],
-			original_language: "en",
-			original_name: overrides.title ?? "Candidate Show",
-			overview: "",
-			popularity: overrides.popularity ?? 40,
-			poster_path: null,
-			vote_average: 7.2,
-			vote_count: overrides.voteCount ?? 1000,
-		},
-		popularity: overrides.popularity ?? 40,
+		createdAt: overrides.createdAt ?? new Date(),
+		mediaType: overrides.mediaType ?? "movies",
 		source: overrides.source ?? "discover",
-		voteCount: overrides.voteCount ?? 1000,
+		tmdbId: overrides.tmdbId ?? 1,
 	};
 }
 
 describe("buildRecommendationTasteProfile", () => {
-	it("aggregates genre and media-type weights", () => {
+	it("aggregates positive and negative genre and type weights", () => {
 		const profile = buildRecommendationTasteProfile([
 			{
 				genreIds: [28, 12],
+				kind: "positive",
 				mediaType: "movies",
 				weight: 6,
 			},
 			{
 				genreIds: [28],
+				kind: "positive",
 				mediaType: "movies",
 				weight: 1.5,
 			},
 			{
+				genreIds: [28],
+				kind: "negative",
+				mediaType: "movies",
+				weight: 3,
+			},
+			{
 				genreIds: [18],
+				kind: "positive",
 				mediaType: "tv",
 				weight: 4,
 			},
 		]);
 
-		expect(profile.typeWeights.movies).toBe(7.5);
-		expect(profile.typeWeights.tv).toBe(4);
-		expect(profile.genreWeights.movies[28]).toBe(7.5);
-		expect(profile.genreWeights.movies[12]).toBe(6);
-		expect(profile.genreWeights.tv[18]).toBe(4);
+		expect(profile.positiveTypeWeights.movies).toBe(7.5);
+		expect(profile.negativeTypeWeights.movies).toBe(3);
+		expect(profile.positiveGenreWeights.movies[28]).toBe(7.5);
+		expect(profile.negativeGenreWeights.movies[28]).toBe(3);
+		expect(profile.positiveTypeWeights.tv).toBe(4);
 	});
 });
 
-describe("scoreRecommendationCandidate", () => {
-	it("rewards candidates that match the dominant genre and media type", () => {
+describe("buildRecommendationScoreBreakdown", () => {
+	it("penalizes repeatedly shown candidates", () => {
 		const profile = buildRecommendationTasteProfile([
 			{
 				genreIds: [28, 12],
-				mediaType: "movies",
-				weight: 6,
-			},
-			{
-				genreIds: [18],
-				mediaType: "tv",
-				weight: 2,
-			},
-		]);
-		const alignedMovie = createMovieCandidate({
-			genreIds: [28, 12],
-			id: 10,
-			popularity: 55,
-			voteCount: 1800,
-		});
-		const mismatchedShow = createShowCandidate({
-			genreIds: [10_767],
-			id: 11,
-			popularity: 70,
-			voteCount: 2400,
-		});
-
-		expect(scoreRecommendationCandidate(alignedMovie, profile)).toBeGreaterThan(
-			scoreRecommendationCandidate(mismatchedShow, profile)
-		);
-	});
-});
-
-describe("pickRecommendationCandidate", () => {
-	it("prefers a strong watchlist pick over a weaker discovery option", () => {
-		const profile = buildRecommendationTasteProfile([
-			{
-				genreIds: [28, 12],
-				mediaType: "movies",
-				weight: 6,
-			},
-		]);
-		const watchlistCandidate = createMovieCandidate({
-			explicitInterestScore: 14,
-			genreIds: [28, 12],
-			id: 21,
-			source: "watchlist",
-		});
-		const discoveryCandidate = createMovieCandidate({
-			explicitInterestScore: 0,
-			genreIds: [28],
-			id: 22,
-			popularity: 85,
-			source: "discover",
-			voteCount: 2500,
-		});
-
-		expect(
-			pickRecommendationCandidate({
-				candidates: [discoveryCandidate, watchlistCandidate],
-				profile,
-			})?.media.id
-		).toBe(21);
-	});
-
-	it("returns null when there are no viable candidates", () => {
-		expect(
-			pickRecommendationCandidate({
-				candidates: [],
-				profile: buildRecommendationTasteProfile([]),
-			})
-		).toBeNull();
-	});
-});
-
-describe("createRecommendationReason", () => {
-	it("does not claim genre affinity when the candidate does not overlap the taste profile", () => {
-		const profile = buildRecommendationTasteProfile([
-			{
-				genreIds: [28, 12],
+				kind: "positive",
 				mediaType: "movies",
 				weight: 6,
 			},
 		]);
 		const candidate = createMovieCandidate({
-			genreIds: [27, 9648],
-			id: 31,
-			source: "discover",
-			title: "Spooky Pick",
+			genreIds: [28, 12],
+			id: 10,
+			popularity: 55,
+			voteCount: 1800,
+		});
+		const baseline = buildRecommendationScoreBreakdown({
+			candidate,
+			impressionRows: [],
+			profile,
+		});
+		const repeatedExposure = buildRecommendationScoreBreakdown({
+			candidate,
+			impressionRows: [
+				createImpressionRow({
+					tmdbId: 10,
+				}),
+				createImpressionRow({
+					tmdbId: 10,
+				}),
+			],
+			profile,
 		});
 
-		expect(createRecommendationReason(candidate, profile)).toBe(
-			"Recommended based on the kinds of movies you keep coming back to."
-		);
+		expect(repeatedExposure.impressionPenalty).toBeGreaterThan(0);
+		expect(repeatedExposure.totalScore).toBeLessThan(baseline.totalScore);
 	});
+});
 
-	it("only names genres that actually match the taste profile", () => {
+describe("pickRecommendationBatch", () => {
+	it("balances sources instead of filling the batch from one source", () => {
+		const profile = buildRecommendationTasteProfile([
+			{
+				genreIds: [28, 12],
+				kind: "positive",
+				mediaType: "movies",
+				weight: 6,
+			},
+		]);
+		const candidates: RecommendationCandidate[] = [
+			createMovieCandidate({
+				explicitInterestScore: 6,
+				id: 101,
+				source: "watchlist",
+			}),
+			createMovieCandidate({
+				explicitInterestScore: 5.5,
+				id: 102,
+				source: "watchlist",
+			}),
+			createMovieCandidate({
+				id: 201,
+				seedTitle: "Top Seed",
+				source: "related",
+			}),
+			createMovieCandidate({
+				id: 202,
+				seedTitle: "Top Seed",
+				source: "related",
+			}),
+			createMovieCandidate({
+				id: 301,
+				popularity: 70,
+				source: "discover",
+				voteCount: 2200,
+			}),
+			createMovieCandidate({
+				id: 302,
+				popularity: 68,
+				source: "discover",
+				voteCount: 2100,
+			}),
+		];
+		const batch = pickRecommendationBatch({
+			candidates,
+			impressionRows: [],
+			profile,
+		});
+		const sourceCounts = batch.reduce<Record<string, number>>(
+			(counts, candidate) => {
+				counts[candidate.source] = (counts[candidate.source] ?? 0) + 1;
+				return counts;
+			},
+			{}
+		);
+
+		expect(batch).toHaveLength(6);
+		expect(sourceCounts.watchlist).toBe(2);
+		expect(sourceCounts.related).toBe(2);
+		expect(sourceCounts.discover).toBe(2);
+	});
+});
+
+describe("buildRecommendationBatch", () => {
+	it("keeps the strongest watchlist candidate first while still returning a batch", () => {
+		const profile = buildRecommendationTasteProfile([
+			{
+				genreIds: [28, 12],
+				kind: "positive",
+				mediaType: "movies",
+				weight: 6,
+			},
+		]);
+		const batch = buildRecommendationBatch({
+			candidates: [
+				createMovieCandidate({
+					explicitInterestScore: 9,
+					genreIds: [28, 12],
+					id: 21,
+					source: "watchlist",
+				}),
+				createMovieCandidate({
+					genreIds: [28],
+					id: 22,
+					popularity: 85,
+					source: "discover",
+					voteCount: 2500,
+				}),
+				createMovieCandidate({
+					genreIds: [28],
+					id: 23,
+					seedTitle: "Action Seed",
+					source: "related",
+					voteCount: 2200,
+				}),
+			],
+			impressionRows: [],
+			profile,
+		});
+
+		expect(batch.recommendations[0]?.media.id).toBe(21);
+		expect(batch.recommendations).toHaveLength(3);
+	});
+});
+
+describe("createRecommendationReason", () => {
+	it("uses the related seed title when available", () => {
 		const profile = buildRecommendationTasteProfile([
 			{
 				genreIds: [27],
+				kind: "positive",
 				mediaType: "movies",
 				weight: 6,
 			},
@@ -214,12 +252,13 @@ describe("createRecommendationReason", () => {
 		const candidate = createMovieCandidate({
 			genreIds: [27, 9648],
 			id: 32,
-			source: "discover",
+			seedTitle: "Alien",
+			source: "related",
 			title: "Half Match",
 		});
 
 		expect(createRecommendationReason(candidate, profile)).toBe(
-			"Recommended because it overlaps with the Horror titles you keep coming back to."
+			"Recommended because you responded well to Alien and it matches the Horror titles you keep coming back to."
 		);
 	});
 });

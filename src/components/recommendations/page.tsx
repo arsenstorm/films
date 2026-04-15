@@ -19,9 +19,11 @@ import {
 } from "@/lib/tmdb";
 import {
 	getRecommendationFn,
+	type RecommendationBatchResult,
 	type RecommendationFeedbackAction,
 	type RecommendationResult,
 	recordRecommendationFeedbackFn,
+	recordRecommendationImpressionFn,
 } from "@/server/recommendations";
 import type { TrackableMediaInput } from "@/server/tracker";
 
@@ -29,6 +31,7 @@ const SWIPE_THRESHOLD_PX = 110;
 const CARD_EXIT_DISTANCE_PX = 220;
 const CARD_EXIT_DURATION_MS = 180;
 const DRAG_TAP_SUPPRESSION_MS = 250;
+const RECOMMENDATION_REFILL_THRESHOLD = 3;
 
 function getRecommendationTitle(media: BrowseMediaItem): string {
 	return media.mediaType === "movies" ? media.title : media.name;
@@ -38,6 +41,43 @@ function getRecommendationReleaseDate(media: BrowseMediaItem): string {
 	return media.mediaType === "movies"
 		? media.release_date
 		: media.first_air_date;
+}
+
+function getRecommendationMediaKey(media: BrowseMediaItem): string {
+	return `${media.mediaType}:${media.id}`;
+}
+
+function mergeRecommendationQueues(
+	currentQueue: RecommendationResult[],
+	incomingBatch: RecommendationBatchResult | null
+): RecommendationResult[] {
+	if (!(incomingBatch && incomingBatch.recommendations.length > 0)) {
+		return currentQueue;
+	}
+
+	if (currentQueue.length === 0) {
+		return incomingBatch.recommendations;
+	}
+
+	const seenMediaKeys = new Set(
+		currentQueue.map((recommendation) =>
+			getRecommendationMediaKey(recommendation.media)
+		)
+	);
+	const mergedQueue = [...currentQueue];
+
+	for (const recommendation of incomingBatch.recommendations) {
+		const mediaKey = getRecommendationMediaKey(recommendation.media);
+
+		if (seenMediaKeys.has(mediaKey)) {
+			continue;
+		}
+
+		seenMediaKeys.add(mediaKey);
+		mergedQueue.push(recommendation);
+	}
+
+	return mergedQueue;
 }
 
 function toTrackableMediaInput(media: BrowseMediaItem): TrackableMediaInput {
@@ -318,7 +358,7 @@ function RecommendationCard({
 						</div>
 					</div>
 
-					<div className="relative mx-6 my-8 aspect-2/3 max-w-52 select-none overflow-hidden rounded-2xl bg-zinc-200 shadow-2xl dark:bg-zinc-800">
+					<div className="relative mx-6 my-4 aspect-2/3 max-w-52 select-none overflow-hidden rounded-2xl bg-zinc-200 shadow-2xl dark:bg-zinc-800">
 						{posterUrl ? (
 							<img
 								alt={title}
@@ -368,7 +408,10 @@ export default function RecommendationsPage() {
 	const dragXOpacity = useTransform(dragX, [-220, 0, 220], [0.86, 1, 0.86]);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [exitDirection, setExitDirection] = useState<-1 | 0 | 1>(0);
-	const { data, error, isLoading, refetch } = useQuery({
+	const [queue, setQueue] = useState<RecommendationResult[]>([]);
+	const loggedImpressionKeysRef = useRef<Set<string>>(new Set());
+	const shownRecommendationCountRef = useRef(0);
+	const { data, error, isFetching, isLoading, refetch } = useQuery({
 		queryFn: () => getRecommendationFn(),
 		queryKey: getRecommendationQueryKey(),
 	});
@@ -387,13 +430,49 @@ export default function RecommendationsPage() {
 				},
 			}),
 	});
+	const currentRecommendation = queue[0] ?? null;
 	const isWorking = feedbackMutation.isPending || exitDirection !== 0;
+
+	useEffect(() => {
+		setQueue((currentQueue) =>
+			mergeRecommendationQueues(currentQueue, data ?? null)
+		);
+	}, [data]);
+
+	useEffect(() => {
+		if (!currentRecommendation) {
+			return;
+		}
+
+		const mediaKey = getRecommendationMediaKey(currentRecommendation.media);
+
+		if (loggedImpressionKeysRef.current.has(mediaKey)) {
+			return;
+		}
+
+		loggedImpressionKeysRef.current.add(mediaKey);
+		const position = shownRecommendationCountRef.current;
+		shownRecommendationCountRef.current += 1;
+
+		recordRecommendationImpressionFn({
+			data: {
+				mediaId: currentRecommendation.media.id,
+				mediaType: currentRecommendation.media.mediaType,
+				position,
+				source: currentRecommendation.source,
+			},
+		}).catch(() => {
+			loggedImpressionKeysRef.current.delete(mediaKey);
+			shownRecommendationCountRef.current = Math.max(0, position);
+			return undefined;
+		});
+	}, [currentRecommendation]);
 
 	async function handleFeedback(
 		action: RecommendationFeedbackAction,
 		direction: -1 | 1
 	): Promise<void> {
-		if (!(data && !isWorking)) {
+		if (!(currentRecommendation && !isWorking)) {
 			return;
 		}
 
@@ -408,9 +487,20 @@ export default function RecommendationsPage() {
 
 			await feedbackMutation.mutateAsync({
 				action,
-				media: toTrackableMediaInput(data.media),
+				media: toTrackableMediaInput(currentRecommendation.media),
 			});
-			await refetch();
+			const nextQueue = queue.slice(1);
+
+			setQueue(nextQueue);
+
+			if (nextQueue.length === 0) {
+				await refetch();
+			} else if (nextQueue.length <= RECOMMENDATION_REFILL_THRESHOLD) {
+				refetch().catch((refetchError) => {
+					setActionError(getErrorMessage(refetchError));
+					return undefined;
+				});
+			}
 		} catch (mutationError) {
 			setActionError(getErrorMessage(mutationError));
 		} finally {
@@ -420,7 +510,7 @@ export default function RecommendationsPage() {
 	}
 
 	async function handleOpenDetails(): Promise<void> {
-		if (!(data && !isWorking)) {
+		if (!(currentRecommendation && !isWorking)) {
 			return;
 		}
 
@@ -429,8 +519,8 @@ export default function RecommendationsPage() {
 		try {
 			await navigate({
 				params: {
-					id: String(data.media.id),
-					type: data.media.mediaType,
+					id: String(currentRecommendation.media.id),
+					type: currentRecommendation.media.mediaType,
 				},
 				search: DEFAULT_BROWSE_SEARCH,
 				state: (currentState) => ({
@@ -450,7 +540,7 @@ export default function RecommendationsPage() {
 			event.metaKey ||
 			event.ctrlKey ||
 			event.altKey ||
-			!data ||
+			!currentRecommendation ||
 			isWorking
 		) {
 			return;
@@ -486,11 +576,11 @@ export default function RecommendationsPage() {
 		};
 	}, []);
 
-	if (isLoading) {
+	if (isLoading || (isFetching && !currentRecommendation)) {
 		return <RecommendationLoadingState />;
 	}
 
-	if (error) {
+	if (error && !currentRecommendation) {
 		return (
 			<RecommendationErrorState
 				errorMessage={getErrorMessage(error)}
@@ -503,7 +593,7 @@ export default function RecommendationsPage() {
 		);
 	}
 
-	if (!data) {
+	if (!currentRecommendation) {
 		return <RecommendationEmptyState />;
 	}
 
@@ -534,7 +624,7 @@ export default function RecommendationsPage() {
 								return undefined;
 							});
 						}}
-						recommendation={data}
+						recommendation={currentRecommendation}
 						shouldReduceMotion={shouldReduceMotion}
 					/>
 				</div>

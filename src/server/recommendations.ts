@@ -1,89 +1,50 @@
 import { createServerFn } from "@tanstack/react-start";
-import { and, eq, or } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 
 import type { MediaType } from "@/lib/media";
+import type { BrowseMediaItem, Movie, Show } from "@/lib/tmdb";
 import {
-	type BrowseMediaItem,
-	getGenreNames,
-	type Movie,
-	type Show,
-} from "@/lib/tmdb";
-import { mediaItem, recommendationFeedback, userMedia } from "@/schema";
+	mediaItem,
+	recommendationFeedback,
+	recommendationImpression,
+	userMedia,
+} from "@/schema";
 import { requireAuthenticatedUserId } from "@/server/auth.server";
 import { db } from "@/server/db";
 import {
-	parseStoredGenreIds,
 	type TrackableMediaInput,
 	upsertMediaItem,
 } from "@/server/media-items";
-import { getMovies, getShows } from "@/server/tmdb";
+import {
+	buildExcludedRecommendationKeys,
+	buildRecommendationBatch,
+	buildRecommendationSeeds,
+	buildRecommendationSignals,
+	buildRecommendationTasteProfile,
+	buildWatchlistCandidates,
+	getDiscoveryMinimumVoteCount,
+	getTopGenreIds,
+	MAX_RELATED_SEEDS_PER_TYPE,
+	type RecommendationBatchResult,
+	type RecommendationCandidate,
+	type RecommendationFeedbackRow,
+	type RecommendationImpressionRow,
+	type RecommendationResult,
+	type RecommendationSeed,
+	type TrackedRecommendationRow,
+} from "@/server/recommendations-engine";
+import {
+	getMovieRecommendations,
+	getMovieSimilar,
+	getMovies,
+	getShowRecommendations,
+	getShowSimilar,
+	getShows,
+} from "@/server/tmdb";
 
-const FAVORITE_SIGNAL_WEIGHT = 6;
-const WATCHED_SIGNAL_WEIGHT = 4;
-const WATCHLIST_SIGNAL_WEIGHT = 2.5;
-const ACCEPTED_SIGNAL_WEIGHT = 1.5;
-const FAVORITE_CANDIDATE_BONUS = 18;
-const WATCHLIST_CANDIDATE_BONUS = 10;
-const WATCHLIST_SOURCE_BONUS = 12;
-const RECENT_ACTIVITY_BONUS = 2;
-const RECENT_ACTIVITY_WINDOW_DAYS = 45;
-const TYPE_WEIGHT_MULTIPLIER = 1.25;
-const GENRE_WEIGHT_MULTIPLIER = 1.15;
-const POPULARITY_SCORE_CAP = 2;
-const VOTE_COUNT_SCORE_CAP = 1.5;
 const DISCOVERY_PAGE = 1;
-const DISCOVERY_MINIMUM_VOTE_COUNT = 150;
-const MAX_DISCOVERY_GENRES = 3;
-
-type RecommendationSource = "discover" | "watchlist";
-
-interface RecommendationSignal {
-	genreIds: number[];
-	mediaType: MediaType;
-	weight: number;
-}
-
-interface RecommendationCandidate {
-	explicitInterestScore: number;
-	media: BrowseMediaItem;
-	popularity: number;
-	source: RecommendationSource;
-	voteCount: number;
-}
-
-interface TrackedRecommendationRow {
-	backdropPath: string | null;
-	genreIds: string;
-	isFavorite: boolean;
-	isInWatchlist: boolean;
-	isWatched: boolean;
-	mediaId: number;
-	mediaType: MediaType;
-	overview: string;
-	posterPath: string | null;
-	releaseDate: string;
-	title: string;
-	updatedAt: Date;
-}
-
-interface RecommendationFeedbackRow {
-	genreIds: string | null;
-	isDisliked: boolean;
-	isLiked: boolean;
-	mediaType: MediaType;
-	tmdbId: number;
-}
-
-export interface RecommendationTasteProfile {
-	genreWeights: Record<MediaType, Record<number, number>>;
-	typeWeights: Record<MediaType, number>;
-}
-
-export interface RecommendationResult {
-	media: BrowseMediaItem;
-	reason: string;
-	source: RecommendationSource;
-}
+const RELATED_PAGE = 1;
+const MAX_RECOMMENDATION_IMPRESSIONS = 250;
 
 export type RecommendationFeedbackAction = "accepted" | "declined";
 
@@ -94,401 +55,134 @@ function getRecommendationKey(input: {
 	return `${input.mediaType}:${input.mediaId}`;
 }
 
-function createEmptyTasteProfile(): RecommendationTasteProfile {
-	return {
-		genreWeights: {
-			movies: {},
-			tv: {},
-		},
-		typeWeights: {
-			movies: 0,
-			tv: 0,
-		},
-	};
-}
-
-function mapTrackedMovie(row: TrackedRecommendationRow): Movie {
-	return {
-		adult: false,
-		backdrop_path: row.backdropPath,
-		genre_ids: parseStoredGenreIds(row.genreIds),
-		id: row.mediaId,
-		original_language: "en",
-		original_title: row.title,
-		overview: row.overview,
-		popularity: 0,
-		poster_path: row.posterPath,
-		release_date: row.releaseDate,
-		title: row.title,
-		video: false,
-		vote_average: 0,
-		vote_count: 0,
-	};
-}
-
-function mapTrackedShow(row: TrackedRecommendationRow): Show {
-	return {
-		adult: false,
-		backdrop_path: row.backdropPath,
-		first_air_date: row.releaseDate,
-		genre_ids: parseStoredGenreIds(row.genreIds),
-		id: row.mediaId,
-		name: row.title,
-		origin_country: [],
-		original_language: "en",
-		original_name: row.title,
-		overview: row.overview,
-		popularity: 0,
-		poster_path: row.posterPath,
-		vote_average: 0,
-		vote_count: 0,
-	};
-}
-
-function mapTrackedBrowseMedia(row: TrackedRecommendationRow): BrowseMediaItem {
-	if (row.mediaType === "movies") {
-		return {
-			...mapTrackedMovie(row),
-			mediaType: "movies",
-		};
-	}
-
-	return {
-		...mapTrackedShow(row),
-		mediaType: "tv",
-	};
-}
-
-function getRecentActivityBonus(updatedAt: Date): number {
-	const millisecondsSinceActivity = Date.now() - updatedAt.getTime();
-	const recentActivityWindowMs =
-		RECENT_ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-
-	return millisecondsSinceActivity <= recentActivityWindowMs
-		? RECENT_ACTIVITY_BONUS
-		: 0;
-}
-
-function getExplicitInterestScore(row: TrackedRecommendationRow): number {
-	let score = getRecentActivityBonus(row.updatedAt);
-
-	if (row.isFavorite) {
-		score += FAVORITE_CANDIDATE_BONUS;
-	}
-
-	if (row.isInWatchlist) {
-		score += WATCHLIST_CANDIDATE_BONUS;
-	}
-
-	return score;
-}
-
-function getTopGenreIds(
-	profile: RecommendationTasteProfile,
-	mediaType: MediaType
-): string | undefined {
-	const entries = Object.entries(profile.genreWeights[mediaType]).sort(
-		(leftEntry, rightEntry) => rightEntry[1] - leftEntry[1]
-	);
-	const topGenreIds = entries
-		.slice(0, MAX_DISCOVERY_GENRES)
-		.map(([genreId]) => genreId);
-
-	return topGenreIds.length > 0 ? topGenreIds.join(",") : undefined;
-}
-
-function normalizeDiscoverMovie(movie: Movie): BrowseMediaItem {
+function normalizeMovie(movie: Movie): BrowseMediaItem {
 	return {
 		...movie,
 		mediaType: "movies",
 	};
 }
 
-function normalizeDiscoverShow(show: Show): BrowseMediaItem {
+function normalizeShow(show: Show): BrowseMediaItem {
 	return {
 		...show,
 		mediaType: "tv",
 	};
 }
 
-function buildRecommendationSignals(
-	trackedRows: TrackedRecommendationRow[],
-	feedbackRows: RecommendationFeedbackRow[]
-): RecommendationSignal[] {
-	const signals: RecommendationSignal[] = [];
-
-	for (const row of trackedRows) {
-		const genreIds = parseStoredGenreIds(row.genreIds);
-		const recentActivityWeight = getRecentActivityBonus(row.updatedAt) * 0.25;
-
-		if (row.isFavorite) {
-			signals.push({
-				genreIds,
-				mediaType: row.mediaType,
-				weight: FAVORITE_SIGNAL_WEIGHT + recentActivityWeight,
-			});
-		}
-
-		if (row.isWatched) {
-			signals.push({
-				genreIds,
-				mediaType: row.mediaType,
-				weight: WATCHED_SIGNAL_WEIGHT + recentActivityWeight,
-			});
-		}
-
-		if (row.isInWatchlist) {
-			signals.push({
-				genreIds,
-				mediaType: row.mediaType,
-				weight: WATCHLIST_SIGNAL_WEIGHT + recentActivityWeight,
-			});
-		}
-	}
-
-	for (const row of feedbackRows) {
-		if (!(row.isLiked && row.genreIds)) {
-			continue;
-		}
-
-		signals.push({
-			genreIds: parseStoredGenreIds(row.genreIds),
-			mediaType: row.mediaType,
-			weight: ACCEPTED_SIGNAL_WEIGHT,
-		});
-	}
-
-	return signals;
+function mapDiscoveryCandidate(
+	media: BrowseMediaItem
+): RecommendationCandidate {
+	return {
+		explicitInterestScore: 0,
+		media,
+		popularity: media.popularity,
+		source: "discover",
+		voteCount: media.vote_count,
+	};
 }
 
-export function buildRecommendationTasteProfile(
-	signals: RecommendationSignal[]
-): RecommendationTasteProfile {
-	const profile = createEmptyTasteProfile();
-
-	for (const signal of signals) {
-		profile.typeWeights[signal.mediaType] += signal.weight;
-
-		for (const genreId of signal.genreIds) {
-			const currentWeight =
-				profile.genreWeights[signal.mediaType][genreId] ?? 0;
-
-			profile.genreWeights[signal.mediaType][genreId] =
-				currentWeight + signal.weight;
-		}
-	}
-
-	return profile;
+function mapRelatedCandidate(
+	media: BrowseMediaItem,
+	seed: RecommendationSeed
+): RecommendationCandidate {
+	return {
+		explicitInterestScore: 0,
+		media,
+		popularity: media.popularity,
+		seedTitle: seed.title,
+		source: "related",
+		voteCount: media.vote_count,
+	};
 }
 
-export function scoreRecommendationCandidate(
-	candidate: RecommendationCandidate,
-	profile: RecommendationTasteProfile
-): number {
-	const typeWeight = profile.typeWeights[candidate.media.mediaType] ?? 0;
-	const matchingGenreWeight = candidate.media.genre_ids.reduce(
-		(totalWeight, genreId) =>
-			totalWeight +
-			(profile.genreWeights[candidate.media.mediaType][genreId] ?? 0),
-		0
-	);
-	const sourceBonus =
-		candidate.source === "watchlist" ? WATCHLIST_SOURCE_BONUS : 0;
-	const popularityScore = Math.min(
-		POPULARITY_SCORE_CAP,
-		candidate.popularity / 100
-	);
-	const voteCountScore = Math.min(
-		VOTE_COUNT_SCORE_CAP,
-		candidate.voteCount / 2500
-	);
-
-	return (
-		candidate.explicitInterestScore +
-		sourceBonus +
-		typeWeight * TYPE_WEIGHT_MULTIPLIER +
-		matchingGenreWeight * GENRE_WEIGHT_MULTIPLIER +
-		popularityScore +
-		voteCountScore
-	);
-}
-
-function getMatchedReasonGenres(
-	candidate: RecommendationCandidate,
-	profile: RecommendationTasteProfile
-): string[] {
-	const weightedGenreIds = candidate.media.genre_ids
-		.map((genreId) => ({
-			genreId,
-			weight: profile.genreWeights[candidate.media.mediaType][genreId] ?? 0,
-		}))
-		.filter((entry) => entry.weight > 0)
-		.sort((leftEntry, rightEntry) => rightEntry.weight - leftEntry.weight)
-		.slice(0, 2)
-		.map((entry) => entry.genreId);
-
-	return getGenreNames(weightedGenreIds);
-}
-
-export function createRecommendationReason(
-	candidate: RecommendationCandidate,
-	profile: RecommendationTasteProfile
-): string {
-	const matchingGenres = getMatchedReasonGenres(candidate, profile);
-
-	if (
-		candidate.source === "watchlist" &&
-		candidate.explicitInterestScore > 20
-	) {
-		return matchingGenres.length > 0
-			? `Pulled from your watchlist because it overlaps with the ${matchingGenres.join(" and ")} titles you keep coming back to.`
-			: "Pulled from your watchlist because you've already shown strong interest in it.";
-	}
-
-	if (candidate.source === "watchlist") {
-		return matchingGenres.length > 0
-			? `Picked from your watchlist because it fits the ${matchingGenres.join(" and ")} titles you tend to save.`
-			: "Picked from your watchlist based on the titles you've already been saving.";
-	}
-
-	if (matchingGenres.length > 0) {
-		return `Recommended because it overlaps with the ${matchingGenres.join(" and ")} titles you keep coming back to.`;
-	}
-
-	return candidate.media.mediaType === "movies"
-		? "Recommended based on the kinds of movies you keep coming back to."
-		: "Recommended based on the kinds of shows you keep coming back to.";
-}
-
-function buildExcludedRecommendationKeys(
-	feedbackRows: RecommendationFeedbackRow[],
-	trackedRows: TrackedRecommendationRow[]
-): Set<string> {
-	const excludedKeys = new Set<string>();
-
-	for (const row of feedbackRows) {
-		if (!(row.isDisliked || row.isLiked)) {
-			continue;
-		}
-
-		excludedKeys.add(
-			getRecommendationKey({
-				mediaId: row.tmdbId,
-				mediaType: row.mediaType,
-			})
-		);
-	}
-
-	for (const row of trackedRows) {
-		if (!row.isWatched) {
-			continue;
-		}
-
-		excludedKeys.add(
-			getRecommendationKey({
-				mediaId: row.mediaId,
-				mediaType: row.mediaType,
-			})
-		);
-	}
-
-	return excludedKeys;
-}
-
-function buildWatchlistCandidates(
-	trackedRows: TrackedRecommendationRow[],
+function filterExcludedMedia(
+	items: BrowseMediaItem[],
 	excludedKeys: Set<string>
-): RecommendationCandidate[] {
-	return trackedRows
-		.filter((row) => row.isInWatchlist && !row.isWatched)
-		.filter(
-			(row) =>
-				!excludedKeys.has(
-					getRecommendationKey({
-						mediaId: row.mediaId,
-						mediaType: row.mediaType,
-					})
-				)
-		)
-		.map((row) => ({
-			explicitInterestScore: getExplicitInterestScore(row),
-			media: mapTrackedBrowseMedia(row),
-			popularity: 0,
-			source: "watchlist" as const,
-			voteCount: 0,
-		}));
+): BrowseMediaItem[] {
+	return items.filter(
+		(item) =>
+			!excludedKeys.has(
+				getRecommendationKey({
+					mediaId: item.id,
+					mediaType: item.mediaType,
+				})
+			)
+	);
 }
 
-async function buildDiscoveryCandidates(
-	profile: RecommendationTasteProfile,
+async function buildRelatedCandidates(
+	seeds: RecommendationSeed[],
 	excludedKeys: Set<string>
 ): Promise<RecommendationCandidate[]> {
+	const movieSeeds = seeds
+		.filter((seed) => seed.mediaType === "movies")
+		.slice(0, MAX_RELATED_SEEDS_PER_TYPE);
+	const showSeeds = seeds
+		.filter((seed) => seed.mediaType === "tv")
+		.slice(0, MAX_RELATED_SEEDS_PER_TYPE);
+	const movieRequests = movieSeeds.flatMap((seed) => [
+		getMovieRecommendations(seed.mediaId, RELATED_PAGE).then((response) => ({
+			results: response.results.map(normalizeMovie),
+			seed,
+		})),
+		getMovieSimilar(seed.mediaId, RELATED_PAGE).then((response) => ({
+			results: response.results.map(normalizeMovie),
+			seed,
+		})),
+	]);
+	const showRequests = showSeeds.flatMap((seed) => [
+		getShowRecommendations(seed.mediaId, RELATED_PAGE).then((response) => ({
+			results: response.results.map(normalizeShow),
+			seed,
+		})),
+		getShowSimilar(seed.mediaId, RELATED_PAGE).then((response) => ({
+			results: response.results.map(normalizeShow),
+			seed,
+		})),
+	]);
+	const responseEntries = await Promise.all([
+		...movieRequests,
+		...showRequests,
+	]);
+
+	return responseEntries.flatMap((entry) =>
+		filterExcludedMedia(entry.results, excludedKeys).map((media) =>
+			mapRelatedCandidate(media, entry.seed)
+		)
+	);
+}
+
+async function buildDiscoveryCandidates(input: {
+	excludedKeys: Set<string>;
+	profile: ReturnType<typeof buildRecommendationTasteProfile>;
+}): Promise<RecommendationCandidate[]> {
 	const [movieResponse, showResponse] = await Promise.all([
 		getMovies({
 			page: DISCOVERY_PAGE,
-			type: "popular",
-			vote_count_gte: DISCOVERY_MINIMUM_VOTE_COUNT,
-			with_genres: getTopGenreIds(profile, "movies"),
+			sort_by: "popularity.desc",
+			type: "discover",
+			vote_count_gte: getDiscoveryMinimumVoteCount(),
+			with_genres: getTopGenreIds(input.profile, "movies"),
 		}),
 		getShows({
 			page: DISCOVERY_PAGE,
-			type: "popular",
-			vote_count_gte: DISCOVERY_MINIMUM_VOTE_COUNT,
-			with_genres: getTopGenreIds(profile, "tv"),
+			sort_by: "popularity.desc",
+			type: "discover",
+			vote_count_gte: getDiscoveryMinimumVoteCount(),
+			with_genres: getTopGenreIds(input.profile, "tv"),
 		}),
 	]);
 
-	const movieCandidates = movieResponse.results
-		.map(normalizeDiscoverMovie)
-		.filter(
-			(movie) =>
-				!excludedKeys.has(
-					getRecommendationKey({
-						mediaId: movie.id,
-						mediaType: movie.mediaType,
-					})
-				)
-		)
-		.map((media) => ({
-			explicitInterestScore: 0,
-			media,
-			popularity: media.popularity,
-			source: "discover" as const,
-			voteCount: media.vote_count,
-		}));
-	const showCandidates = showResponse.results
-		.map(normalizeDiscoverShow)
-		.filter(
-			(show) =>
-				!excludedKeys.has(
-					getRecommendationKey({
-						mediaId: show.id,
-						mediaType: show.mediaType,
-					})
-				)
-		)
-		.map((media) => ({
-			explicitInterestScore: 0,
-			media,
-			popularity: media.popularity,
-			source: "discover" as const,
-			voteCount: media.vote_count,
-		}));
-
-	return [...movieCandidates, ...showCandidates];
-}
-
-export function pickRecommendationCandidate(input: {
-	candidates: RecommendationCandidate[];
-	profile: RecommendationTasteProfile;
-}): RecommendationCandidate | null {
-	const rankedCandidates = [...input.candidates].sort(
-		(leftCandidate, rightCandidate) =>
-			scoreRecommendationCandidate(rightCandidate, input.profile) -
-			scoreRecommendationCandidate(leftCandidate, input.profile)
-	);
-
-	return rankedCandidates[0] ?? null;
+	return [
+		...filterExcludedMedia(
+			movieResponse.results.map(normalizeMovie),
+			input.excludedKeys
+		).map(mapDiscoveryCandidate),
+		...filterExcludedMedia(
+			showResponse.results.map(normalizeShow),
+			input.excludedKeys
+		).map(mapDiscoveryCandidate),
+	];
 }
 
 function loadTrackedRecommendationRows(
@@ -532,7 +226,9 @@ function loadRecommendationFeedbackRows(
 			isDisliked: recommendationFeedback.isDisliked,
 			isLiked: recommendationFeedback.isLiked,
 			mediaType: recommendationFeedback.mediaType,
+			title: mediaItem.title,
 			tmdbId: recommendationFeedback.tmdbId,
+			updatedAt: recommendationFeedback.updatedAt,
 		})
 		.from(recommendationFeedback)
 		.leftJoin(
@@ -545,41 +241,61 @@ function loadRecommendationFeedbackRows(
 		.where(eq(recommendationFeedback.userId, userId));
 }
 
-async function getRecommendation(): Promise<RecommendationResult | null> {
+function loadRecommendationImpressionRows(
+	userId: string
+): Promise<RecommendationImpressionRow[]> {
+	return db
+		.select({
+			createdAt: recommendationImpression.createdAt,
+			mediaType: recommendationImpression.mediaType,
+			source: recommendationImpression.source,
+			tmdbId: recommendationImpression.tmdbId,
+		})
+		.from(recommendationImpression)
+		.where(eq(recommendationImpression.userId, userId))
+		.orderBy(desc(recommendationImpression.createdAt))
+		.limit(MAX_RECOMMENDATION_IMPRESSIONS);
+}
+
+async function getRecommendationBatch(): Promise<RecommendationBatchResult | null> {
 	const userId = await requireAuthenticatedUserId();
-	const [trackedRows, feedbackRows] = await Promise.all([
+	const [trackedRows, feedbackRows, impressionRows] = await Promise.all([
 		loadTrackedRecommendationRows(userId),
 		loadRecommendationFeedbackRows(userId),
+		loadRecommendationImpressionRows(userId),
 	]);
 	const signals = buildRecommendationSignals(trackedRows, feedbackRows);
-
-	if (signals.length === 0) {
-		return null;
-	}
-
 	const profile = buildRecommendationTasteProfile(signals);
 	const excludedKeys = buildExcludedRecommendationKeys(
 		feedbackRows,
 		trackedRows
 	);
-	const [watchlistCandidates, discoveryCandidates] = await Promise.all([
-		Promise.resolve(buildWatchlistCandidates(trackedRows, excludedKeys)),
-		buildDiscoveryCandidates(profile, excludedKeys),
+	const watchlistCandidates = buildWatchlistCandidates(
+		trackedRows,
+		excludedKeys
+	);
+	const seeds = buildRecommendationSeeds({
+		feedbackRows,
+		trackedRows,
+	});
+	const [relatedCandidates, discoveryCandidates] = await Promise.all([
+		buildRelatedCandidates(seeds, excludedKeys),
+		buildDiscoveryCandidates({
+			excludedKeys,
+			profile,
+		}),
 	]);
-	const candidate = pickRecommendationCandidate({
-		candidates: [...watchlistCandidates, ...discoveryCandidates],
+	const batch = buildRecommendationBatch({
+		candidates: [
+			...watchlistCandidates,
+			...relatedCandidates,
+			...discoveryCandidates,
+		],
+		impressionRows,
 		profile,
 	});
 
-	if (!candidate) {
-		return null;
-	}
-
-	return {
-		media: candidate.media,
-		reason: createRecommendationReason(candidate, profile),
-		source: candidate.source,
-	};
+	return batch.recommendations.length > 0 ? batch : null;
 }
 
 async function recordRecommendationFeedback(input: {
@@ -616,8 +332,26 @@ async function recordRecommendationFeedback(input: {
 		});
 }
 
+async function recordRecommendationImpression(input: {
+	mediaId: number;
+	mediaType: MediaType;
+	position: number;
+	source: RecommendationResult["source"];
+}): Promise<void> {
+	const userId = await requireAuthenticatedUserId();
+
+	await db.insert(recommendationImpression).values({
+		createdAt: new Date(),
+		mediaType: input.mediaType,
+		position: Math.max(0, input.position),
+		source: input.source,
+		tmdbId: input.mediaId,
+		userId,
+	});
+}
+
 export const getRecommendationFn = createServerFn({ method: "GET" }).handler(
-	async () => getRecommendation()
+	async () => getRecommendationBatch()
 );
 
 export const recordRecommendationFeedbackFn = createServerFn({
@@ -630,3 +364,21 @@ export const recordRecommendationFeedbackFn = createServerFn({
 		}) => data
 	)
 	.handler(async ({ data }) => recordRecommendationFeedback(data));
+
+export const recordRecommendationImpressionFn = createServerFn({
+	method: "POST",
+})
+	.inputValidator(
+		(data: {
+			mediaId: number;
+			mediaType: MediaType;
+			position: number;
+			source: RecommendationResult["source"];
+		}) => data
+	)
+	.handler(async ({ data }) => recordRecommendationImpression(data));
+
+export type {
+	RecommendationBatchResult,
+	RecommendationResult,
+} from "@/server/recommendations-engine";

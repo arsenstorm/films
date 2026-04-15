@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
+import { parseStoredGenreIds } from "@/lib/genre-ids";
 import type { BrowseMediaType, BrowseView, MediaType } from "@/lib/media";
 import type {
 	BrowseMediaResponse,
@@ -15,7 +16,6 @@ import { requireAuthenticatedUserId } from "@/server/auth.server";
 import { db } from "@/server/db";
 import {
 	getExistingMediaItemId,
-	parseStoredGenreIds,
 	type TrackableMediaInput,
 	upsertMediaItem,
 } from "@/server/media-items";

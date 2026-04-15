@@ -137,6 +137,38 @@ export function getShows(params: ShowParams = {}): Promise<ShowResponse> {
 	return fetchFromTmdb<ShowResponse>(endpoint, searchParams);
 }
 
+function getPagedTmdbCollection<T>(endpoint: string, page = 1): Promise<T> {
+	const searchParams = new URLSearchParams();
+	searchParams.set("page", String(page));
+
+	return fetchFromTmdb<T>(endpoint, searchParams);
+}
+
+export function getMovieRecommendations(
+	id: number,
+	page = 1
+): Promise<MovieResponse> {
+	return getPagedTmdbCollection<MovieResponse>(
+		`movie/${id}/recommendations`,
+		page
+	);
+}
+
+export function getMovieSimilar(id: number, page = 1): Promise<MovieResponse> {
+	return getPagedTmdbCollection<MovieResponse>(`movie/${id}/similar`, page);
+}
+
+export function getShowRecommendations(
+	id: number,
+	page = 1
+): Promise<ShowResponse> {
+	return getPagedTmdbCollection<ShowResponse>(`tv/${id}/recommendations`, page);
+}
+
+export function getShowSimilar(id: number, page = 1): Promise<ShowResponse> {
+	return getPagedTmdbCollection<ShowResponse>(`tv/${id}/similar`, page);
+}
+
 export function searchTvShows(query: string, page = 1): Promise<ShowResponse> {
 	const searchParams = new URLSearchParams();
 	searchParams.set("query", query);

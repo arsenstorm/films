@@ -172,6 +172,35 @@ export const recommendationFeedback = sqliteTable(
 	]
 );
 
+export const recommendationImpression = sqliteTable(
+	"recommendation_impression",
+	{
+		id: integer("id").primaryKey({ autoIncrement: true }),
+		userId: text("userId")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		tmdbId: integer("tmdbId").notNull(),
+		mediaType: text("mediaType", { enum: ["movies", "tv"] }).notNull(),
+		source: text("source", {
+			enum: ["discover", "related", "watchlist"],
+		}).notNull(),
+		position: integer("position").notNull().default(0),
+		createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
+	},
+	(table) => [
+		index("recommendation_impression_user_id_index").on(table.userId),
+		index("recommendation_impression_user_created_index").on(
+			table.userId,
+			table.createdAt
+		),
+		index("recommendation_impression_user_media_index").on(
+			table.userId,
+			table.mediaType,
+			table.tmdbId
+		),
+	]
+);
+
 export const authSchema = {
 	account,
 	session,
@@ -183,5 +212,6 @@ export const databaseSchema = {
 	...authSchema,
 	mediaItem,
 	recommendationFeedback,
+	recommendationImpression,
 	userMedia,
 };
