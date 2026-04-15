@@ -65,7 +65,7 @@ export default function MediaCard({
 					{getReleaseYear(releaseDate)}
 				</p>
 			</div>
-			<div className="relative mx-auto my-8 aspect-2/3 w-full max-w-48 overflow-hidden rounded-2xl bg-zinc-200 shadow-2xl dark:bg-zinc-800">
+			<div className="relative mx-auto my-6 aspect-2/3 w-full max-w-48 overflow-hidden rounded-2xl bg-zinc-200 shadow-2xl dark:bg-zinc-800">
 				{posterUrl ? (
 					<img
 						alt={title}
@@ -78,7 +78,7 @@ export default function MediaCard({
 				) : null}
 			</div>
 			<div className="flex items-center justify-between">
-				<p className="text-sm text-zinc-600 dark:text-zinc-300">
+				<p className="max-w-[13.5ch] truncate text-sm text-zinc-600 dark:text-zinc-300">
 					{getGenreNames(media.genre_ids.slice(0, 2)).join(" ∙ ")}
 				</p>
 				<span className="flex items-center gap-1 font-medium text-sm text-zinc-950 dark:text-zinc-50">

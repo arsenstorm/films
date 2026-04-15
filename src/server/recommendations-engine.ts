@@ -265,7 +265,9 @@ function mapTrackedShow(row: TrackedRecommendationRow): Show {
 	};
 }
 
-function mapTrackedBrowseMedia(row: TrackedRecommendationRow): BrowseMediaItem {
+export function mapTrackedBrowseMedia(
+	row: TrackedRecommendationRow
+): BrowseMediaItem {
 	if (row.mediaType === "movies") {
 		return {
 			...mapTrackedMovie(row),
@@ -276,6 +278,37 @@ function mapTrackedBrowseMedia(row: TrackedRecommendationRow): BrowseMediaItem {
 	return {
 		...mapTrackedShow(row),
 		mediaType: "tv",
+	};
+}
+
+export function bucketRecommendationHistoryRows<
+	TItem extends {
+		isDisliked: boolean;
+		isLiked: boolean;
+		isTracked: boolean;
+	},
+>(
+	items: TItem[]
+): {
+	hidden: TItem[];
+	interested: TItem[];
+} {
+	const hidden: TItem[] = [];
+	const interested: TItem[] = [];
+
+	for (const item of items) {
+		if (item.isDisliked) {
+			hidden.push(item);
+		}
+
+		if (item.isLiked && !item.isTracked) {
+			interested.push(item);
+		}
+	}
+
+	return {
+		hidden,
+		interested,
 	};
 }
 

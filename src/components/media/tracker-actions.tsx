@@ -15,6 +15,7 @@ import { useRef, useState } from "react";
 import {
 	getMediaTrackerStateQueryKey,
 	getRecommendationQueryKey,
+	getRecommendationReviewQueryKey,
 } from "@/lib/query";
 import {
 	type MediaTrackerState,
@@ -289,6 +290,9 @@ export default function MediaTrackerActions({
 			});
 			await queryClient.invalidateQueries({
 				queryKey: getRecommendationQueryKey(),
+			});
+			await queryClient.invalidateQueries({
+				queryKey: getRecommendationReviewQueryKey(),
 			});
 		},
 	});

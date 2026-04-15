@@ -23,6 +23,7 @@ import {
 } from "@/server/media-items";
 import {
 	applyRecommendationRerankScores,
+	bucketRecommendationHistoryRows,
 	buildExcludedRecommendationKeys,
 	buildRecommendationBatch,
 	buildRecommendationHistoryDiagnostics,
@@ -33,6 +34,7 @@ import {
 	getDiscoveryMinimumVoteCount,
 	getTopGenreIds,
 	MAX_RELATED_SEEDS_PER_TYPE,
+	mapTrackedBrowseMedia,
 	type RecommendationBatchResult,
 	type RecommendationCandidate,
 	type RecommendationFeedbackRow,
@@ -57,6 +59,7 @@ const RELATED_PAGE = 1;
 const MAX_RECOMMENDATION_IMPRESSIONS = 250;
 const RECOMMENDATION_RERANK_MODEL = "@cf/baai/bge-reranker-base";
 const RECOMMENDATION_RERANK_POOL_SIZE = 12;
+const RECOMMENDATION_REVIEW_BATCH_SIZE = 18;
 
 export type RecommendationFeedbackAction = "accepted" | "declined";
 
@@ -65,6 +68,49 @@ interface RecommendationRerankerResponse {
 		id: number;
 		score: number;
 	}>;
+}
+
+interface RecommendationContext {
+	feedbackRows: RecommendationFeedbackRow[];
+	impressionRows: RecommendationImpressionRow[];
+	isColdStart: boolean;
+	profile: ReturnType<typeof buildRecommendationTasteProfile>;
+	seeds: RecommendationSeed[];
+	signalCount: number;
+	trackedRows: TrackedRecommendationRow[];
+}
+
+interface RecommendationReviewHistoryRow extends TrackedRecommendationRow {
+	isDisliked: boolean;
+	isLiked: boolean;
+	isTracked: boolean;
+}
+
+interface RecommendationReviewHistoryRowResult {
+	backdropPath: string | null;
+	genreIds: string;
+	isDisliked: boolean;
+	isFavorite: boolean | null;
+	isInWatchlist: boolean | null;
+	isLiked: boolean;
+	isWatched: boolean | null;
+	mediaId: number;
+	mediaType: MediaType;
+	overview: string;
+	posterPath: string | null;
+	releaseDate: string;
+	title: string;
+	updatedAt: Date;
+}
+
+interface RecommendationReviewItem {
+	media: BrowseMediaItem;
+}
+
+export interface RecommendationReviewResult {
+	hidden: RecommendationReviewItem[];
+	interested: RecommendationReviewItem[];
+	newRecommendations: RecommendationResult[];
 }
 
 function getRecommendationKey(input: {
@@ -415,78 +461,186 @@ function loadRecommendationImpressionRows(
 		.limit(MAX_RECOMMENDATION_IMPRESSIONS);
 }
 
-async function getRecommendationBatch(): Promise<RecommendationBatchResult | null> {
-	const userId = await requireAuthenticatedUserId();
+function loadRecommendationReviewHistoryRows(
+	userId: string
+): Promise<RecommendationReviewHistoryRowResult[]> {
+	return db
+		.select({
+			backdropPath: mediaItem.backdropPath,
+			genreIds: mediaItem.genreIds,
+			isDisliked: recommendationFeedback.isDisliked,
+			isFavorite: userMedia.isFavorite,
+			isInWatchlist: userMedia.isInWatchlist,
+			isLiked: recommendationFeedback.isLiked,
+			isWatched: userMedia.isWatched,
+			mediaId: mediaItem.tmdbId,
+			mediaType: mediaItem.mediaType,
+			overview: mediaItem.overview,
+			posterPath: mediaItem.posterPath,
+			releaseDate: mediaItem.releaseDate,
+			title: mediaItem.title,
+			updatedAt: recommendationFeedback.updatedAt,
+		})
+		.from(recommendationFeedback)
+		.innerJoin(
+			mediaItem,
+			and(
+				eq(recommendationFeedback.tmdbId, mediaItem.tmdbId),
+				eq(recommendationFeedback.mediaType, mediaItem.mediaType)
+			)
+		)
+		.leftJoin(
+			userMedia,
+			and(eq(userMedia.userId, userId), eq(userMedia.mediaItemId, mediaItem.id))
+		)
+		.where(eq(recommendationFeedback.userId, userId))
+		.orderBy(desc(recommendationFeedback.updatedAt));
+}
+
+function normalizeRecommendationReviewHistoryRow(
+	row: RecommendationReviewHistoryRowResult
+): RecommendationReviewHistoryRow {
+	const isFavorite = row.isFavorite ?? false;
+	const isInWatchlist = row.isInWatchlist ?? false;
+	const isWatched = row.isWatched ?? false;
+
+	return {
+		backdropPath: row.backdropPath,
+		genreIds: row.genreIds,
+		isDisliked: row.isDisliked,
+		isFavorite,
+		isInWatchlist,
+		isLiked: row.isLiked,
+		isTracked: isFavorite || isInWatchlist || isWatched,
+		isWatched,
+		mediaId: row.mediaId,
+		mediaType: row.mediaType,
+		overview: row.overview,
+		posterPath: row.posterPath,
+		releaseDate: row.releaseDate,
+		title: row.title,
+		updatedAt: row.updatedAt,
+	};
+}
+
+function mapRecommendationReviewItem(
+	row: RecommendationReviewHistoryRow
+): RecommendationReviewItem {
+	return {
+		media: mapTrackedBrowseMedia(row),
+	};
+}
+
+async function loadRecommendationContext(
+	userId: string
+): Promise<RecommendationContext> {
 	const [trackedRows, feedbackRows, impressionRows] = await Promise.all([
 		loadTrackedRecommendationRows(userId),
 		loadRecommendationFeedbackRows(userId),
 		loadRecommendationImpressionRows(userId),
 	]);
 	const signals = buildRecommendationSignals(trackedRows, feedbackRows);
-	const isColdStart = signals.length === 0;
-	const profile = buildRecommendationTasteProfile(signals);
-	const excludedKeys = buildExcludedRecommendationKeys(
-		feedbackRows,
-		trackedRows
-	);
-	const watchlistCandidates = buildWatchlistCandidates(
-		trackedRows,
-		excludedKeys
-	);
 	const seeds = buildRecommendationSeeds({
 		feedbackRows,
 		trackedRows,
 	});
+
+	return {
+		feedbackRows,
+		impressionRows,
+		isColdStart: signals.length === 0,
+		profile: buildRecommendationTasteProfile(signals),
+		seeds,
+		signalCount: signals.length,
+		trackedRows,
+	};
+}
+
+async function buildRecommendationCandidates(
+	context: RecommendationContext
+): Promise<RecommendationCandidate[]> {
+	const excludedKeys = buildExcludedRecommendationKeys(
+		context.feedbackRows,
+		context.trackedRows
+	);
+	const watchlistCandidates = buildWatchlistCandidates(
+		context.trackedRows,
+		excludedKeys
+	);
 	const [relatedCandidates, discoveryCandidates] = await Promise.all([
-		buildRelatedCandidates(seeds, excludedKeys),
+		buildRelatedCandidates(context.seeds, excludedKeys),
 		buildDiscoveryCandidates({
 			excludedKeys,
-			profile,
+			profile: context.profile,
 		}),
 	]);
-	const candidates = [
-		...watchlistCandidates,
-		...relatedCandidates,
-		...discoveryCandidates,
-	];
+
+	return [...watchlistCandidates, ...relatedCandidates, ...discoveryCandidates];
+}
+
+async function getRecommendationBatch(input?: {
+	batchSize?: number;
+	context?: RecommendationContext;
+}): Promise<RecommendationBatchResult | null> {
+	const context =
+		input?.context ??
+		(await loadRecommendationContext(await requireAuthenticatedUserId()));
+	const candidates = await buildRecommendationCandidates(context);
 	const rerankedCandidates = await rerankRecommendationCandidates({
 		candidates,
-		impressionRows,
-		profile,
-		seeds,
+		impressionRows: context.impressionRows,
+		profile: context.profile,
+		seeds: context.seeds,
 	});
 	const batch = buildRecommendationBatch({
+		batchSize: input?.batchSize,
 		candidates: rerankedCandidates,
-		impressionRows,
-		isColdStart,
-		profile,
-		seedCount: seeds.length,
-		signalCount: signals.length,
+		impressionRows: context.impressionRows,
+		isColdStart: context.isColdStart,
+		profile: context.profile,
+		seedCount: context.seeds.length,
+		signalCount: context.signalCount,
 	});
 
 	return batch.recommendations.length > 0 ? batch : null;
 }
 
-async function getRecommendationDiagnostics(): Promise<RecommendationHistoryDiagnostics> {
+async function getRecommendationReview(): Promise<RecommendationReviewResult> {
 	const userId = await requireAuthenticatedUserId();
-	const [trackedRows, feedbackRows, impressionRows] = await Promise.all([
-		loadTrackedRecommendationRows(userId),
-		loadRecommendationFeedbackRows(userId),
-		loadRecommendationImpressionRows(userId),
+	const [context, reviewRowResults] = await Promise.all([
+		loadRecommendationContext(userId),
+		loadRecommendationReviewHistoryRows(userId),
 	]);
-	const signals = buildRecommendationSignals(trackedRows, feedbackRows);
-	const profile = buildRecommendationTasteProfile(signals);
-	const seeds = buildRecommendationSeeds({
-		feedbackRows,
-		trackedRows,
-	});
+	const newRecommendations =
+		(
+			await getRecommendationBatch({
+				batchSize: RECOMMENDATION_REVIEW_BATCH_SIZE,
+				context,
+			})
+		)?.recommendations ?? [];
+	const reviewRows = reviewRowResults.map(
+		normalizeRecommendationReviewHistoryRow
+	);
+	const reviewBuckets = bucketRecommendationHistoryRows(reviewRows);
+
+	return {
+		hidden: reviewBuckets.hidden.map(mapRecommendationReviewItem),
+		interested: reviewBuckets.interested.map(mapRecommendationReviewItem),
+		newRecommendations,
+	};
+}
+
+async function getRecommendationDiagnostics(): Promise<RecommendationHistoryDiagnostics> {
+	const context = await loadRecommendationContext(
+		await requireAuthenticatedUserId()
+	);
 
 	return buildRecommendationHistoryDiagnostics({
-		feedbackRows,
-		impressionRows,
-		profile,
-		seedCount: seeds.length,
-		signalCount: signals.length,
+		feedbackRows: context.feedbackRows,
+		impressionRows: context.impressionRows,
+		profile: context.profile,
+		seedCount: context.seeds.length,
+		signalCount: context.signalCount,
 	});
 }
 
@@ -545,6 +699,10 @@ async function recordRecommendationImpression(input: {
 export const getRecommendationFn = createServerFn({ method: "GET" }).handler(
 	async () => getRecommendationBatch()
 );
+
+export const getRecommendationReviewFn = createServerFn({
+	method: "GET",
+}).handler(async () => getRecommendationReview());
 
 export const recordRecommendationFeedbackFn = createServerFn({
 	method: "POST",

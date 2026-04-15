@@ -13,6 +13,7 @@ import { DEFAULT_BROWSE_SEARCH } from "@/lib/media";
 import {
 	getRecommendationQueryKey,
 	getRecommendationQueueQueryKey,
+	getRecommendationReviewQueryKey,
 } from "@/lib/query";
 import {
 	getRecommendationMediaKey,
@@ -102,7 +103,7 @@ function RecommendationShell({ children }: { children: React.ReactNode }) {
 
 function RecommendationHeader() {
 	return (
-		<header className="px-1 py-1 sm:px-0 sm:py-0">
+		<header className="flex items-center justify-between gap-3 px-1 py-1 sm:px-0 sm:py-0">
 			<Link
 				className="relative inline-flex items-center gap-2 px-1 py-2 font-medium text-sm text-zinc-600 transition-colors hover:text-zinc-950 focus-visible:outline-2 focus-visible:outline-blue-500 focus-visible:outline-offset-2 dark:text-zinc-300 dark:hover:text-zinc-50"
 				params={{ type: "all" }}
@@ -112,6 +113,12 @@ function RecommendationHeader() {
 				<span className="-translate-1/2 absolute top-1/2 left-1/2 pointer-fine:hidden size-[max(100%,3rem)]" />
 				<ArrowLeft className="size-5 sm:size-4" />
 				Back to library
+			</Link>
+			<Link
+				className="inline-flex min-h-9 items-center rounded-full border border-zinc-200/80 bg-white px-4 py-2 font-medium text-sm text-zinc-950 ring-1 ring-black/5 transition-transform focus-visible:outline-2 focus-visible:outline-blue-500 focus-visible:outline-offset-2 active:scale-[0.99] dark:border-zinc-800/80 dark:bg-zinc-950 dark:text-zinc-50 dark:ring-white/10"
+				to="/recommendations/all"
+			>
+				All recommendations
 			</Link>
 		</header>
 	);
@@ -486,6 +493,13 @@ export default function RecommendationsPage() {
 			);
 
 			setQueue(nextQueue);
+			queryClient
+				.invalidateQueries({
+					queryKey: getRecommendationReviewQueryKey(),
+				})
+				.catch(() => {
+					return undefined;
+				});
 
 			if (nextQueue.length === 0) {
 				await refetch();

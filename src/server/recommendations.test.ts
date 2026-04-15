@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	applyRecommendationRerankScores,
+	bucketRecommendationHistoryRows,
 	buildRecommendationBatch,
 	buildRecommendationHistoryDiagnostics,
 	buildRecommendationScoreBreakdown,
@@ -394,5 +395,47 @@ describe("buildRecommendationHistoryDiagnostics", () => {
 		expect(diagnostics.sourceDiagnostics.discover.declinedCount).toBe(1);
 		expect(diagnostics.mode).toBe("personalized");
 		expect(diagnostics.topMovieGenres).toEqual(["Action"]);
+	});
+});
+
+describe("bucketRecommendationHistoryRows", () => {
+	it("keeps liked titles that are still untracked and separates hidden titles", () => {
+		const buckets = bucketRecommendationHistoryRows([
+			{
+				id: "liked-untracked",
+				isDisliked: false,
+				isLiked: true,
+				isTracked: false,
+			},
+			{
+				id: "liked-tracked",
+				isDisliked: false,
+				isLiked: true,
+				isTracked: true,
+			},
+			{
+				id: "hidden",
+				isDisliked: true,
+				isLiked: false,
+				isTracked: false,
+			},
+		]);
+
+		expect(buckets.interested).toEqual([
+			{
+				id: "liked-untracked",
+				isDisliked: false,
+				isLiked: true,
+				isTracked: false,
+			},
+		]);
+		expect(buckets.hidden).toEqual([
+			{
+				id: "hidden",
+				isDisliked: true,
+				isLiked: false,
+				isTracked: false,
+			},
+		]);
 	});
 });

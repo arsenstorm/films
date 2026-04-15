@@ -43,3 +43,9 @@ export function getRecommendationQueueQueryKey(): readonly [
 ] {
 	return ["recommendation-queue"] as const;
 }
+
+export function getRecommendationReviewQueryKey(): readonly [
+	"recommendation-review",
+] {
+	return ["recommendation-review"] as const;
+}

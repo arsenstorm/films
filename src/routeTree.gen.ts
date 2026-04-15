@@ -10,9 +10,11 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignInRouteImport } from './routes/sign-in'
-import { Route as RecommendationsRouteImport } from './routes/recommendations'
+import { Route as RecommendationsRouteRouteImport } from './routes/recommendations/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as RecommendationsIndexRouteImport } from './routes/recommendations/index'
 import { Route as TypeIndexRouteImport } from './routes/$type/index'
+import { Route as RecommendationsAllRouteImport } from './routes/recommendations/all'
 import { Route as TypeIdIndexRouteImport } from './routes/$type/$id/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -21,7 +23,7 @@ const SignInRoute = SignInRouteImport.update({
   path: '/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RecommendationsRoute = RecommendationsRouteImport.update({
+const RecommendationsRouteRoute = RecommendationsRouteRouteImport.update({
   id: '/recommendations',
   path: '/recommendations',
   getParentRoute: () => rootRouteImport,
@@ -31,10 +33,20 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RecommendationsIndexRoute = RecommendationsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => RecommendationsRouteRoute,
+} as any)
 const TypeIndexRoute = TypeIndexRouteImport.update({
   id: '/$type/',
   path: '/$type/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const RecommendationsAllRoute = RecommendationsAllRouteImport.update({
+  id: '/all',
+  path: '/all',
+  getParentRoute: () => RecommendationsRouteRoute,
 } as any)
 const TypeIdIndexRoute = TypeIdIndexRouteImport.update({
   id: '/$type/$id/',
@@ -49,26 +61,31 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/recommendations': typeof RecommendationsRoute
+  '/recommendations': typeof RecommendationsRouteRouteWithChildren
   '/sign-in': typeof SignInRoute
+  '/recommendations/all': typeof RecommendationsAllRoute
   '/$type/': typeof TypeIndexRoute
+  '/recommendations/': typeof RecommendationsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$type/$id/': typeof TypeIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/recommendations': typeof RecommendationsRoute
   '/sign-in': typeof SignInRoute
+  '/recommendations/all': typeof RecommendationsAllRoute
   '/$type': typeof TypeIndexRoute
+  '/recommendations': typeof RecommendationsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$type/$id': typeof TypeIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/recommendations': typeof RecommendationsRoute
+  '/recommendations': typeof RecommendationsRouteRouteWithChildren
   '/sign-in': typeof SignInRoute
+  '/recommendations/all': typeof RecommendationsAllRoute
   '/$type/': typeof TypeIndexRoute
+  '/recommendations/': typeof RecommendationsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$type/$id/': typeof TypeIdIndexRoute
 }
@@ -78,15 +95,18 @@ export interface FileRouteTypes {
     | '/'
     | '/recommendations'
     | '/sign-in'
+    | '/recommendations/all'
     | '/$type/'
+    | '/recommendations/'
     | '/api/auth/$'
     | '/$type/$id/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/recommendations'
     | '/sign-in'
+    | '/recommendations/all'
     | '/$type'
+    | '/recommendations'
     | '/api/auth/$'
     | '/$type/$id'
   id:
@@ -94,14 +114,16 @@ export interface FileRouteTypes {
     | '/'
     | '/recommendations'
     | '/sign-in'
+    | '/recommendations/all'
     | '/$type/'
+    | '/recommendations/'
     | '/api/auth/$'
     | '/$type/$id/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  RecommendationsRoute: typeof RecommendationsRoute
+  RecommendationsRouteRoute: typeof RecommendationsRouteRouteWithChildren
   SignInRoute: typeof SignInRoute
   TypeIndexRoute: typeof TypeIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -121,7 +143,7 @@ declare module '@tanstack/react-router' {
       id: '/recommendations'
       path: '/recommendations'
       fullPath: '/recommendations'
-      preLoaderRoute: typeof RecommendationsRouteImport
+      preLoaderRoute: typeof RecommendationsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -131,12 +153,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/recommendations/': {
+      id: '/recommendations/'
+      path: '/'
+      fullPath: '/recommendations/'
+      preLoaderRoute: typeof RecommendationsIndexRouteImport
+      parentRoute: typeof RecommendationsRouteRoute
+    }
     '/$type/': {
       id: '/$type/'
       path: '/$type'
       fullPath: '/$type/'
       preLoaderRoute: typeof TypeIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/recommendations/all': {
+      id: '/recommendations/all'
+      path: '/all'
+      fullPath: '/recommendations/all'
+      preLoaderRoute: typeof RecommendationsAllRouteImport
+      parentRoute: typeof RecommendationsRouteRoute
     }
     '/$type/$id/': {
       id: '/$type/$id/'
@@ -155,9 +191,22 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface RecommendationsRouteRouteChildren {
+  RecommendationsAllRoute: typeof RecommendationsAllRoute
+  RecommendationsIndexRoute: typeof RecommendationsIndexRoute
+}
+
+const RecommendationsRouteRouteChildren: RecommendationsRouteRouteChildren = {
+  RecommendationsAllRoute: RecommendationsAllRoute,
+  RecommendationsIndexRoute: RecommendationsIndexRoute,
+}
+
+const RecommendationsRouteRouteWithChildren =
+  RecommendationsRouteRoute._addFileChildren(RecommendationsRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  RecommendationsRoute: RecommendationsRoute,
+  RecommendationsRouteRoute: RecommendationsRouteRouteWithChildren,
   SignInRoute: SignInRoute,
   TypeIndexRoute: TypeIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
