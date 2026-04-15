@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as RecommendationsRouteImport } from './routes/recommendations'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TypeIndexRouteImport } from './routes/$type/index'
 import { Route as TypeIdIndexRouteImport } from './routes/$type/$id/index'
@@ -18,6 +19,11 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 const SignInRoute = SignInRouteImport.update({
   id: '/sign-in',
   path: '/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RecommendationsRoute = RecommendationsRouteImport.update({
+  id: '/recommendations',
+  path: '/recommendations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -43,6 +49,7 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/recommendations': typeof RecommendationsRoute
   '/sign-in': typeof SignInRoute
   '/$type/': typeof TypeIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -50,6 +57,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/recommendations': typeof RecommendationsRoute
   '/sign-in': typeof SignInRoute
   '/$type': typeof TypeIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -58,6 +66,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/recommendations': typeof RecommendationsRoute
   '/sign-in': typeof SignInRoute
   '/$type/': typeof TypeIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -65,14 +74,34 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/sign-in' | '/$type/' | '/api/auth/$' | '/$type/$id/'
+  fullPaths:
+    | '/'
+    | '/recommendations'
+    | '/sign-in'
+    | '/$type/'
+    | '/api/auth/$'
+    | '/$type/$id/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/sign-in' | '/$type' | '/api/auth/$' | '/$type/$id'
-  id: '__root__' | '/' | '/sign-in' | '/$type/' | '/api/auth/$' | '/$type/$id/'
+  to:
+    | '/'
+    | '/recommendations'
+    | '/sign-in'
+    | '/$type'
+    | '/api/auth/$'
+    | '/$type/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/recommendations'
+    | '/sign-in'
+    | '/$type/'
+    | '/api/auth/$'
+    | '/$type/$id/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  RecommendationsRoute: typeof RecommendationsRoute
   SignInRoute: typeof SignInRoute
   TypeIndexRoute: typeof TypeIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -86,6 +115,13 @@ declare module '@tanstack/react-router' {
       path: '/sign-in'
       fullPath: '/sign-in'
       preLoaderRoute: typeof SignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/recommendations': {
+      id: '/recommendations'
+      path: '/recommendations'
+      fullPath: '/recommendations'
+      preLoaderRoute: typeof RecommendationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -121,6 +157,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  RecommendationsRoute: RecommendationsRoute,
   SignInRoute: SignInRoute,
   TypeIndexRoute: TypeIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

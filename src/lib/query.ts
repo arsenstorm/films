@@ -33,3 +33,7 @@ export function getMediaTrackerStateQueryKey(input: {
 }): readonly ["media-tracker-state", MediaType, number] {
 	return ["media-tracker-state", input.mediaType, input.mediaId] as const;
 }
+
+export function getRecommendationQueryKey(): readonly ["recommendation"] {
+	return ["recommendation"] as const;
+}

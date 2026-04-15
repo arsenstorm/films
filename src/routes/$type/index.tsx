@@ -14,7 +14,7 @@ import {
 	parseBrowseSearch,
 } from "@/lib/media";
 import type { BrowseMediaItem } from "@/lib/tmdb";
-import { requireAuthenticatedAccess } from "@/server/auth";
+import { getSessionStateFn, requireAuthenticatedAccess } from "@/server/auth";
 
 function getBrowseTitle(mediaType: BrowseMediaType, view: BrowseView): string {
 	if (mediaType === "all") {
@@ -61,12 +61,14 @@ export const Route = createFileRoute("/$type/")({
 			},
 		],
 	}),
-	loader: ({ location }) => {
+	loader: async ({ location }) => {
 		const view =
 			"view" in location.search
 				? (location.search.view as BrowseView)
 				: DEFAULT_BROWSE_SEARCH.view;
+		const { isSpecialUser } = await getSessionStateFn();
 		return {
+			isSpecialUser,
 			view,
 		};
 	},
@@ -78,6 +80,7 @@ export const Route = createFileRoute("/$type/")({
 
 function MediaBrowsePage() {
 	const { type } = Route.useParams();
+	const { isSpecialUser } = Route.useLoaderData();
 	const { page, q, view } = Route.useSearch();
 	const browseType = parseBrowseMediaType(type);
 	let grid = <MoviesGrid page={page} searchQuery={q} view={view} />;
@@ -101,7 +104,7 @@ function MediaBrowsePage() {
 	return (
 		<main className="min-h-screen bg-zinc-100 p-6 pt-2 dark:bg-zinc-950">
 			<header className="mb-2 flex h-16 items-center">
-				<SearchBar />
+				<SearchBar isSpecialUser={isSpecialUser} />
 			</header>
 			{grid}
 		</main>

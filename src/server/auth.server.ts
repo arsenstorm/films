@@ -140,9 +140,32 @@ export function getServerSession() {
 	});
 }
 
-export async function isAuthenticatedRequest(): Promise<boolean> {
+export async function getSessionState(): Promise<{
+	isAuthenticated: boolean;
+	isSpecialUser: boolean;
+}> {
 	const session = await getServerSession();
-	return session !== null;
+
+	return {
+		isAuthenticated: session !== null,
+		isSpecialUser: session?.user.special ?? false,
+	};
+}
+
+export async function isAuthenticatedRequest(): Promise<boolean> {
+	const { isAuthenticated } = await getSessionState();
+	return isAuthenticated;
+}
+
+export async function requireAuthenticatedUserId(): Promise<string> {
+	const session = await getServerSession();
+	const userId = session?.user.id;
+
+	if (!userId) {
+		throw new Error("Authentication is required.");
+	}
+
+	return userId;
 }
 
 export async function signInWithEmail(input: {

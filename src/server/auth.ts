@@ -1,7 +1,7 @@
 import { redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 
-import { getSafeRedirectPath } from "@/lib/auth";
+import { DEFAULT_AUTHENTICATED_PATH, getSafeRedirectPath } from "@/lib/auth";
 
 let cachedAuthenticatedAccess: boolean | null = null;
 
@@ -57,11 +57,8 @@ function validateSignUpInput(data: unknown): SignUpInput {
 
 export const getSessionStateFn = createServerFn({ method: "GET" }).handler(
 	async () => {
-		const { isAuthenticatedRequest } = await import("@/server/auth.server");
-
-		return {
-			isAuthenticated: await isAuthenticatedRequest(),
-		};
+		const { getSessionState } = await import("@/server/auth.server");
+		return getSessionState();
 	}
 );
 
@@ -103,6 +100,33 @@ export async function requireAuthenticatedAccess(
 			next: getSafeRedirectPath(nextPath),
 		},
 		to: "/sign-in",
+	});
+}
+
+export async function requireSpecialUserAccess(
+	nextPath: string
+): Promise<void> {
+	const { isAuthenticated, isSpecialUser } = await getSessionStateFn();
+
+	if (!isAuthenticated) {
+		throw redirect({
+			search: {
+				next: getSafeRedirectPath(nextPath),
+			},
+			to: "/sign-in",
+		});
+	}
+
+	if (typeof window !== "undefined") {
+		cachedAuthenticatedAccess = true;
+	}
+
+	if (isSpecialUser) {
+		return;
+	}
+
+	throw redirect({
+		href: DEFAULT_AUTHENTICATED_PATH,
 	});
 }
 

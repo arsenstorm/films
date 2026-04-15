@@ -11,8 +11,14 @@ import type {
 	ShowResponse,
 } from "@/lib/tmdb";
 import { mediaItem, userMedia } from "@/schema";
-import { getServerSession } from "@/server/auth.server";
+import { requireAuthenticatedUserId } from "@/server/auth.server";
 import { db } from "@/server/db";
+import {
+	getExistingMediaItemId,
+	parseStoredGenreIds,
+	type TrackableMediaInput,
+	upsertMediaItem,
+} from "@/server/media-items";
 
 const TRACKED_PAGE_SIZE = 20;
 
@@ -20,17 +26,6 @@ export interface MediaTrackerState {
 	isFavorite: boolean;
 	isInWatchlist: boolean;
 	isWatched: boolean;
-}
-
-export interface TrackableMediaInput {
-	backdropPath: string | null;
-	genreIds: number[];
-	mediaId: number;
-	mediaType: MediaType;
-	overview: string;
-	posterPath: string | null;
-	releaseDate: string;
-	title: string;
 }
 
 interface UpdateMediaTrackerStateInput {
@@ -74,38 +69,15 @@ function getEmptyTrackerState(): MediaTrackerState {
 	};
 }
 
-async function requireTrackerUserId(): Promise<string> {
-	const session = await getServerSession();
-	const userId = session?.user.id;
-
-	if (!userId) {
-		throw new Error("Authentication is required.");
-	}
-
-	return userId;
-}
-
-function parseGenreIds(rawGenreIds: string): number[] {
-	try {
-		const parsedGenreIds = JSON.parse(rawGenreIds) as unknown;
-
-		if (Array.isArray(parsedGenreIds)) {
-			return parsedGenreIds.filter(
-				(genreId): genreId is number => typeof genreId === "number"
-			);
-		}
-	} catch {
-		return [];
-	}
-
-	return [];
+function requireTrackerUserId(): Promise<string> {
+	return requireAuthenticatedUserId();
 }
 
 function mapTrackedMovie(row: TrackedMediaRow): Movie {
 	return {
 		adult: false,
 		backdrop_path: row.backdropPath,
-		genre_ids: parseGenreIds(row.genreIds),
+		genre_ids: parseStoredGenreIds(row.genreIds),
 		id: row.mediaId,
 		original_language: "en",
 		original_title: row.title,
@@ -125,7 +97,7 @@ function mapTrackedShow(row: TrackedMediaRow): Show {
 		adult: false,
 		backdrop_path: row.backdropPath,
 		first_air_date: row.releaseDate,
-		genre_ids: parseGenreIds(row.genreIds),
+		genre_ids: parseStoredGenreIds(row.genreIds),
 		id: row.mediaId,
 		name: row.title,
 		origin_country: [],
@@ -153,65 +125,6 @@ function mapTrackedBrowseMedia(
 		...mapTrackedShow(row),
 		mediaType: "tv",
 	};
-}
-
-async function getExistingMediaItemId(input: {
-	mediaId: number;
-	mediaType: MediaType;
-}): Promise<number | null> {
-	const [entry] = await db
-		.select({
-			id: mediaItem.id,
-		})
-		.from(mediaItem)
-		.where(
-			and(
-				eq(mediaItem.tmdbId, input.mediaId),
-				eq(mediaItem.mediaType, input.mediaType)
-			)
-		)
-		.limit(1);
-
-	return entry?.id ?? null;
-}
-
-async function upsertMediaItem(input: TrackableMediaInput): Promise<number> {
-	const now = new Date();
-	const [savedItem] = await db
-		.insert(mediaItem)
-		.values({
-			backdropPath: input.backdropPath,
-			createdAt: now,
-			genreIds: JSON.stringify(input.genreIds),
-			mediaType: input.mediaType,
-			overview: input.overview,
-			posterPath: input.posterPath,
-			releaseDate: input.releaseDate,
-			title: input.title,
-			tmdbId: input.mediaId,
-			updatedAt: now,
-		})
-		.onConflictDoUpdate({
-			set: {
-				backdropPath: input.backdropPath,
-				genreIds: JSON.stringify(input.genreIds),
-				overview: input.overview,
-				posterPath: input.posterPath,
-				releaseDate: input.releaseDate,
-				title: input.title,
-				updatedAt: now,
-			},
-			target: [mediaItem.mediaType, mediaItem.tmdbId],
-		})
-		.returning({
-			id: mediaItem.id,
-		});
-
-	if (!savedItem) {
-		throw new Error("Failed to save media item.");
-	}
-
-	return savedItem.id;
 }
 
 async function getMediaTrackerState(input: {
@@ -386,3 +299,5 @@ export const getTrackedMediaFn = createServerFn({ method: "GET" })
 		}) => data
 	)
 	.handler(async ({ data }) => getTrackedMedia(data));
+
+export type { TrackableMediaInput } from "@/server/media-items";

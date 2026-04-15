@@ -20,7 +20,7 @@ interface MediaDetailsFact {
 const frostedSurfaceClassName =
 	"shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_28px_80px_rgba(0,0,0,0.22)] [-webkit-backdrop-filter:blur(22px)] [backdrop-filter:blur(22px)]";
 const posterFrameClassName =
-	"relative overflow-hidden rounded-[2rem] bg-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_28px_80px_rgba(0,0,0,0.28)]";
+	"relative overflow-hidden rounded-4xl bg-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_28px_80px_rgba(0,0,0,0.28)]";
 
 interface MediaDetailsPageProps {
 	aboutLabel: string;
@@ -75,9 +75,13 @@ export default function MediaDetailsPage({
 		typeof rawReturnToHref === "string"
 			? getSafeRedirectPath(rawReturnToHref)
 			: null;
-	const resolvedBackLabel = returnToHref?.startsWith("/all")
-		? "Back to all"
-		: backLabel;
+	let resolvedBackLabel = backLabel;
+
+	if (returnToHref?.startsWith("/recommendations")) {
+		resolvedBackLabel = "Back to recommendations";
+	} else if (returnToHref?.startsWith("/all")) {
+		resolvedBackLabel = "Back to all";
+	}
 	const backLinkTransitionStyle = {
 		viewTransitionClass: "media-detail-secondary",
 		viewTransitionName: getMediaViewTransitionName(type, id, "back-link"),

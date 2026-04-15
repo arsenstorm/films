@@ -12,7 +12,10 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState } from "react";
 
-import { getMediaTrackerStateQueryKey } from "@/lib/query";
+import {
+	getMediaTrackerStateQueryKey,
+	getRecommendationQueryKey,
+} from "@/lib/query";
 import {
 	type MediaTrackerState,
 	type TrackableMediaInput,
@@ -283,6 +286,9 @@ export default function MediaTrackerActions({
 					query.queryKey[0] === "browse-media" &&
 					(query.queryKey[1] === media.mediaType ||
 						query.queryKey[1] === "all"),
+			});
+			await queryClient.invalidateQueries({
+				queryKey: getRecommendationQueryKey(),
 			});
 		},
 	});

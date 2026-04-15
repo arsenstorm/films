@@ -142,6 +142,36 @@ export const userMedia = sqliteTable(
 	]
 );
 
+export const recommendationFeedback = sqliteTable(
+	"recommendation_feedback",
+	{
+		id: integer("id").primaryKey({ autoIncrement: true }),
+		userId: text("userId")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		tmdbId: integer("tmdbId").notNull(),
+		mediaType: text("mediaType", { enum: ["movies", "tv"] }).notNull(),
+		isLiked: integer("isLiked", { mode: "boolean" }).notNull().default(false),
+		isDisliked: integer("isDisliked", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
+		updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull(),
+	},
+	(table) => [
+		index("recommendation_feedback_user_id_index").on(table.userId),
+		index("recommendation_feedback_user_updated_index").on(
+			table.userId,
+			table.updatedAt
+		),
+		uniqueIndex("recommendation_feedback_user_media_unique").on(
+			table.userId,
+			table.mediaType,
+			table.tmdbId
+		),
+	]
+);
+
 export const authSchema = {
 	account,
 	session,
@@ -152,5 +182,6 @@ export const authSchema = {
 export const databaseSchema = {
 	...authSchema,
 	mediaItem,
+	recommendationFeedback,
 	userMedia,
 };
