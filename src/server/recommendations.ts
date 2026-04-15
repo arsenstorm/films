@@ -1,8 +1,14 @@
+import { env } from "cloudflare:workers";
 import { createServerFn } from "@tanstack/react-start";
 import { and, desc, eq, or } from "drizzle-orm";
 
 import type { MediaType } from "@/lib/media";
-import type { BrowseMediaItem, Movie, Show } from "@/lib/tmdb";
+import {
+	type BrowseMediaItem,
+	getGenreNames,
+	type Movie,
+	type Show,
+} from "@/lib/tmdb";
 import {
 	mediaItem,
 	recommendationFeedback,
@@ -16,8 +22,10 @@ import {
 	upsertMediaItem,
 } from "@/server/media-items";
 import {
+	applyRecommendationRerankScores,
 	buildExcludedRecommendationKeys,
 	buildRecommendationBatch,
+	buildRecommendationHistoryDiagnostics,
 	buildRecommendationSeeds,
 	buildRecommendationSignals,
 	buildRecommendationTasteProfile,
@@ -28,9 +36,11 @@ import {
 	type RecommendationBatchResult,
 	type RecommendationCandidate,
 	type RecommendationFeedbackRow,
+	type RecommendationHistoryDiagnostics,
 	type RecommendationImpressionRow,
 	type RecommendationResult,
 	type RecommendationSeed,
+	rankRecommendationCandidates,
 	type TrackedRecommendationRow,
 } from "@/server/recommendations-engine";
 import {
@@ -45,8 +55,17 @@ import {
 const DISCOVERY_PAGE = 1;
 const RELATED_PAGE = 1;
 const MAX_RECOMMENDATION_IMPRESSIONS = 250;
+const RECOMMENDATION_RERANK_MODEL = "@cf/baai/bge-reranker-base";
+const RECOMMENDATION_RERANK_POOL_SIZE = 12;
 
 export type RecommendationFeedbackAction = "accepted" | "declined";
+
+interface RecommendationRerankerResponse {
+	response?: Array<{
+		id: number;
+		score: number;
+	}>;
+}
 
 function getRecommendationKey(input: {
 	mediaId: number;
@@ -67,6 +86,131 @@ function normalizeShow(show: Show): BrowseMediaItem {
 		...show,
 		mediaType: "tv",
 	};
+}
+
+function getRecommendationTitle(media: BrowseMediaItem): string {
+	return media.mediaType === "movies" ? media.title : media.name;
+}
+
+function getTopGenreNames(
+	profile: ReturnType<typeof buildRecommendationTasteProfile>,
+	mediaType: MediaType
+): string[] {
+	const topGenreIds =
+		getTopGenreIds(profile, mediaType)
+			?.split(",")
+			.map((genreId) => Number(genreId)) ?? [];
+
+	return getGenreNames(topGenreIds);
+}
+
+function buildRecommendationRerankQuery(input: {
+	profile: ReturnType<typeof buildRecommendationTasteProfile>;
+	seeds: RecommendationSeed[];
+}): string | null {
+	const seedTitles = input.seeds.slice(0, 3).map((seed) => seed.title);
+	const topMovieGenres = getTopGenreNames(input.profile, "movies");
+	const topShowGenres = getTopGenreNames(input.profile, "tv");
+	const queryParts = [
+		seedTitles.length > 0
+			? `Strong positive signals include: ${seedTitles.join(", ")}.`
+			: null,
+		topMovieGenres.length > 0
+			? `Preferred movie genres: ${topMovieGenres.join(", ")}.`
+			: null,
+		topShowGenres.length > 0
+			? `Preferred TV genres: ${topShowGenres.join(", ")}.`
+			: null,
+	];
+	const query = queryParts.filter(Boolean).join(" ");
+
+	if (query.length === 0) {
+		return null;
+	}
+
+	return `${query} Prefer the option that best matches this taste profile, not just the most broadly popular title.`;
+}
+
+function buildRecommendationRerankContext(
+	candidate: RecommendationCandidate
+): string {
+	const genres = getGenreNames(candidate.media.genre_ids);
+	const contextParts = [
+		`Title: ${getRecommendationTitle(candidate.media)}.`,
+		`Type: ${candidate.media.mediaType === "movies" ? "Movie" : "TV series"}.`,
+		genres.length > 0 ? `Genres: ${genres.join(", ")}.` : null,
+		candidate.seedTitle ? `Related seed: ${candidate.seedTitle}.` : null,
+		candidate.media.overview ? `Overview: ${candidate.media.overview}.` : null,
+		`Source: ${candidate.source}.`,
+	];
+
+	return contextParts.filter(Boolean).join(" ");
+}
+
+function normalizeRerankScore(score: number): number {
+	return 1 / (1 + Math.exp(-score));
+}
+
+async function rerankRecommendationCandidates(input: {
+	candidates: RecommendationCandidate[];
+	impressionRows: RecommendationImpressionRow[];
+	profile: ReturnType<typeof buildRecommendationTasteProfile>;
+	seeds: RecommendationSeed[];
+}): Promise<RecommendationCandidate[]> {
+	const rerankQuery = buildRecommendationRerankQuery({
+		profile: input.profile,
+		seeds: input.seeds,
+	});
+
+	if (!(env.AI && rerankQuery)) {
+		return input.candidates;
+	}
+
+	const rerankPool = rankRecommendationCandidates({
+		candidates: input.candidates,
+		impressionRows: input.impressionRows,
+		profile: input.profile,
+	}).slice(0, RECOMMENDATION_RERANK_POOL_SIZE);
+
+	if (rerankPool.length < 2) {
+		return input.candidates;
+	}
+
+	try {
+		const response = (await env.AI.run(RECOMMENDATION_RERANK_MODEL, {
+			contexts: rerankPool.map((candidate) => ({
+				text: buildRecommendationRerankContext(candidate),
+			})),
+			query: rerankQuery,
+			top_k: rerankPool.length,
+		})) as RecommendationRerankerResponse;
+		const rerankScores = (response.response ?? []).flatMap((entry) => {
+			const candidate = rerankPool[entry.id];
+
+			if (!candidate) {
+				return [];
+			}
+
+			return [
+				{
+					mediaId: candidate.media.id,
+					mediaType: candidate.media.mediaType,
+					score: normalizeRerankScore(entry.score),
+				},
+			];
+		});
+
+		if (rerankScores.length === 0) {
+			return input.candidates;
+		}
+
+		return applyRecommendationRerankScores({
+			candidates: input.candidates,
+			rerankScores,
+		});
+	} catch {
+		return input.candidates;
+	}
 }
 
 function mapDiscoveryCandidate(
@@ -140,15 +284,17 @@ async function buildRelatedCandidates(
 			seed,
 		})),
 	]);
-	const responseEntries = await Promise.all([
+	const settledResponses = await Promise.allSettled([
 		...movieRequests,
 		...showRequests,
 	]);
 
-	return responseEntries.flatMap((entry) =>
-		filterExcludedMedia(entry.results, excludedKeys).map((media) =>
-			mapRelatedCandidate(media, entry.seed)
-		)
+	return settledResponses.flatMap((entry) =>
+		entry.status === "fulfilled"
+			? filterExcludedMedia(entry.value.results, excludedKeys).map((media) =>
+					mapRelatedCandidate(media, entry.value.seed)
+				)
+			: []
 	);
 }
 
@@ -156,7 +302,7 @@ async function buildDiscoveryCandidates(input: {
 	excludedKeys: Set<string>;
 	profile: ReturnType<typeof buildRecommendationTasteProfile>;
 }): Promise<RecommendationCandidate[]> {
-	const [movieResponse, showResponse] = await Promise.all([
+	const settledResponses = await Promise.allSettled([
 		getMovies({
 			page: DISCOVERY_PAGE,
 			sort_by: "popularity.desc",
@@ -172,16 +318,28 @@ async function buildDiscoveryCandidates(input: {
 			with_genres: getTopGenreIds(input.profile, "tv"),
 		}),
 	]);
+	const movieResponse =
+		settledResponses[0]?.status === "fulfilled"
+			? settledResponses[0].value
+			: null;
+	const showResponse =
+		settledResponses[1]?.status === "fulfilled"
+			? settledResponses[1].value
+			: null;
 
 	return [
-		...filterExcludedMedia(
-			movieResponse.results.map(normalizeMovie),
-			input.excludedKeys
-		).map(mapDiscoveryCandidate),
-		...filterExcludedMedia(
-			showResponse.results.map(normalizeShow),
-			input.excludedKeys
-		).map(mapDiscoveryCandidate),
+		...(movieResponse
+			? filterExcludedMedia(
+					movieResponse.results.map(normalizeMovie),
+					input.excludedKeys
+				).map(mapDiscoveryCandidate)
+			: []),
+		...(showResponse
+			? filterExcludedMedia(
+					showResponse.results.map(normalizeShow),
+					input.excludedKeys
+				).map(mapDiscoveryCandidate)
+			: []),
 	];
 }
 
@@ -265,6 +423,7 @@ async function getRecommendationBatch(): Promise<RecommendationBatchResult | nul
 		loadRecommendationImpressionRows(userId),
 	]);
 	const signals = buildRecommendationSignals(trackedRows, feedbackRows);
+	const isColdStart = signals.length === 0;
 	const profile = buildRecommendationTasteProfile(signals);
 	const excludedKeys = buildExcludedRecommendationKeys(
 		feedbackRows,
@@ -285,17 +444,50 @@ async function getRecommendationBatch(): Promise<RecommendationBatchResult | nul
 			profile,
 		}),
 	]);
-	const batch = buildRecommendationBatch({
-		candidates: [
-			...watchlistCandidates,
-			...relatedCandidates,
-			...discoveryCandidates,
-		],
+	const candidates = [
+		...watchlistCandidates,
+		...relatedCandidates,
+		...discoveryCandidates,
+	];
+	const rerankedCandidates = await rerankRecommendationCandidates({
+		candidates,
 		impressionRows,
 		profile,
+		seeds,
+	});
+	const batch = buildRecommendationBatch({
+		candidates: rerankedCandidates,
+		impressionRows,
+		isColdStart,
+		profile,
+		seedCount: seeds.length,
+		signalCount: signals.length,
 	});
 
 	return batch.recommendations.length > 0 ? batch : null;
+}
+
+async function getRecommendationDiagnostics(): Promise<RecommendationHistoryDiagnostics> {
+	const userId = await requireAuthenticatedUserId();
+	const [trackedRows, feedbackRows, impressionRows] = await Promise.all([
+		loadTrackedRecommendationRows(userId),
+		loadRecommendationFeedbackRows(userId),
+		loadRecommendationImpressionRows(userId),
+	]);
+	const signals = buildRecommendationSignals(trackedRows, feedbackRows);
+	const profile = buildRecommendationTasteProfile(signals);
+	const seeds = buildRecommendationSeeds({
+		feedbackRows,
+		trackedRows,
+	});
+
+	return buildRecommendationHistoryDiagnostics({
+		feedbackRows,
+		impressionRows,
+		profile,
+		seedCount: seeds.length,
+		signalCount: signals.length,
+	});
 }
 
 async function recordRecommendationFeedback(input: {
@@ -378,7 +570,12 @@ export const recordRecommendationImpressionFn = createServerFn({
 	)
 	.handler(async ({ data }) => recordRecommendationImpression(data));
 
+export const getRecommendationDiagnosticsFn = createServerFn({
+	method: "GET",
+}).handler(async () => getRecommendationDiagnostics());
+
 export type {
 	RecommendationBatchResult,
+	RecommendationHistoryDiagnostics,
 	RecommendationResult,
 } from "@/server/recommendations-engine";

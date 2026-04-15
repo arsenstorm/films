@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, RefreshCcw } from "lucide-react";
 import {
@@ -10,7 +10,16 @@ import {
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { DEFAULT_BROWSE_SEARCH } from "@/lib/media";
-import { getRecommendationQueryKey } from "@/lib/query";
+import {
+	getRecommendationQueryKey,
+	getRecommendationQueueQueryKey,
+} from "@/lib/query";
+import {
+	getRecommendationMediaKey,
+	mergeRecommendationQueues,
+	removeRecommendationFromBatch,
+	removeRecommendationFromQueue,
+} from "@/lib/recommendation-queue";
 import {
 	type BrowseMediaItem,
 	getGenreNames,
@@ -41,43 +50,6 @@ function getRecommendationReleaseDate(media: BrowseMediaItem): string {
 	return media.mediaType === "movies"
 		? media.release_date
 		: media.first_air_date;
-}
-
-function getRecommendationMediaKey(media: BrowseMediaItem): string {
-	return `${media.mediaType}:${media.id}`;
-}
-
-function mergeRecommendationQueues(
-	currentQueue: RecommendationResult[],
-	incomingBatch: RecommendationBatchResult | null
-): RecommendationResult[] {
-	if (!(incomingBatch && incomingBatch.recommendations.length > 0)) {
-		return currentQueue;
-	}
-
-	if (currentQueue.length === 0) {
-		return incomingBatch.recommendations;
-	}
-
-	const seenMediaKeys = new Set(
-		currentQueue.map((recommendation) =>
-			getRecommendationMediaKey(recommendation.media)
-		)
-	);
-	const mergedQueue = [...currentQueue];
-
-	for (const recommendation of incomingBatch.recommendations) {
-		const mediaKey = getRecommendationMediaKey(recommendation.media);
-
-		if (seenMediaKeys.has(mediaKey)) {
-			continue;
-		}
-
-		seenMediaKeys.add(mediaKey);
-		mergedQueue.push(recommendation);
-	}
-
-	return mergedQueue;
 }
 
 function toTrackableMediaInput(media: BrowseMediaItem): TrackableMediaInput {
@@ -347,7 +319,7 @@ function RecommendationCard({
 				>
 					<div className="flex items-start justify-between gap-4">
 						<div className="min-w-0 flex-1">
-							<h1 className="line-clamp-1 font-medium text-sm text-zinc-600 dark:text-zinc-300">
+							<h1 className="line-clamp-1 max-w-[22ch] truncate font-medium text-sm text-zinc-600 dark:text-zinc-300">
 								{title}
 							</h1>
 						</div>
@@ -402,13 +374,19 @@ function RecommendationCard({
 
 export default function RecommendationsPage() {
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const shouldReduceMotion = useReducedMotion();
 	const dragX = useMotionValue(0);
 	const dragXRotate = useTransform(dragX, [-180, 0, 180], [-5, 0, 5]);
 	const dragXOpacity = useTransform(dragX, [-220, 0, 220], [0.86, 1, 0.86]);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [exitDirection, setExitDirection] = useState<-1 | 0 | 1>(0);
-	const [queue, setQueue] = useState<RecommendationResult[]>([]);
+	const [queue, setQueue] = useState<RecommendationResult[]>(
+		() =>
+			queryClient.getQueryData<RecommendationResult[]>(
+				getRecommendationQueueQueryKey()
+			) ?? []
+	);
 	const loggedImpressionKeysRef = useRef<Set<string>>(new Set());
 	const shownRecommendationCountRef = useRef(0);
 	const { data, error, isFetching, isLoading, refetch } = useQuery({
@@ -438,6 +416,10 @@ export default function RecommendationsPage() {
 			mergeRecommendationQueues(currentQueue, data ?? null)
 		);
 	}, [data]);
+
+	useEffect(() => {
+		queryClient.setQueryData(getRecommendationQueueQueryKey(), queue);
+	}, [queryClient, queue]);
 
 	useEffect(() => {
 		if (!currentRecommendation) {
@@ -489,7 +471,19 @@ export default function RecommendationsPage() {
 				action,
 				media: toTrackableMediaInput(currentRecommendation.media),
 			});
-			const nextQueue = queue.slice(1);
+			const nextQueue = removeRecommendationFromQueue(
+				queue,
+				currentRecommendation.media
+			);
+
+			queryClient.setQueryData(
+				getRecommendationQueryKey(),
+				(currentBatch: RecommendationBatchResult | null | undefined) =>
+					removeRecommendationFromBatch(
+						currentBatch ?? null,
+						currentRecommendation.media
+					)
+			);
 
 			setQueue(nextQueue);
 

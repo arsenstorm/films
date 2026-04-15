@@ -30,6 +30,10 @@
       "custom_domain": true
     }
   ],
+  "ai": {
+    "binding": "AI",
+    "remote": true
+  },
   "d1_databases": [
     {
       "binding": "DB",

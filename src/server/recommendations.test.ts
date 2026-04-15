@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	applyRecommendationRerankScores,
 	buildRecommendationBatch,
+	buildRecommendationHistoryDiagnostics,
 	buildRecommendationScoreBreakdown,
 	buildRecommendationTasteProfile,
 	createRecommendationReason,
@@ -16,6 +18,7 @@ function createMovieCandidate(
 		genreIds: number[];
 		id: number;
 		popularity: number;
+		rerankScore: number;
 		seedTitle: string | null;
 		source: "discover" | "related" | "watchlist";
 		title: string;
@@ -42,6 +45,7 @@ function createMovieCandidate(
 			vote_count: overrides.voteCount ?? 1000,
 		},
 		popularity: overrides.popularity ?? 40,
+		rerankScore: overrides.rerankScore,
 		seedTitle: overrides.seedTitle,
 		source: overrides.source ?? "discover",
 		voteCount: overrides.voteCount ?? 1000,
@@ -130,6 +134,49 @@ describe("buildRecommendationScoreBreakdown", () => {
 
 		expect(repeatedExposure.impressionPenalty).toBeGreaterThan(0);
 		expect(repeatedExposure.totalScore).toBeLessThan(baseline.totalScore);
+	});
+
+	it("includes rerank score boosts in the total score", () => {
+		const candidate = createMovieCandidate({
+			id: 14,
+			rerankScore: 2.5,
+		});
+		const scoreBreakdown = buildRecommendationScoreBreakdown({
+			candidate,
+			impressionRows: [],
+			profile: buildRecommendationTasteProfile([]),
+		});
+
+		expect(scoreBreakdown.rerankScore).toBe(2.5);
+		expect(scoreBreakdown.totalScore).toBeGreaterThan(2.5);
+	});
+});
+
+describe("applyRecommendationRerankScores", () => {
+	it("adds rerank boosts to matching candidates only", () => {
+		const candidates = [
+			createMovieCandidate({
+				id: 81,
+				title: "Baseline",
+			}),
+			createMovieCandidate({
+				id: 82,
+				title: "Boosted",
+			}),
+		];
+		const rerankedCandidates = applyRecommendationRerankScores({
+			candidates,
+			rerankScores: [
+				{
+					mediaId: 82,
+					mediaType: "movies",
+					score: 1,
+				},
+			],
+		});
+
+		expect(rerankedCandidates[0]?.rerankScore).toBeUndefined();
+		expect(rerankedCandidates[1]?.rerankScore).toBeGreaterThan(0);
 	});
 });
 
@@ -237,6 +284,30 @@ describe("buildRecommendationBatch", () => {
 		expect(batch.recommendations[0]?.media.id).toBe(21);
 		expect(batch.recommendations).toHaveLength(3);
 	});
+
+	it("marks the batch as cold-start when no signals exist", () => {
+		const batch = buildRecommendationBatch({
+			candidates: [
+				createMovieCandidate({
+					id: 55,
+					popularity: 88,
+					source: "discover",
+					title: "Fresh Start",
+					voteCount: 2600,
+				}),
+			],
+			impressionRows: [],
+			isColdStart: true,
+			profile: buildRecommendationTasteProfile([]),
+			seedCount: 0,
+			signalCount: 0,
+		});
+
+		expect(batch.metadata.mode).toBe("cold-start");
+		expect(batch.recommendations[0]?.reason).toBe(
+			"Popular right now while we learn your movie taste."
+		);
+	});
 });
 
 describe("createRecommendationReason", () => {
@@ -260,5 +331,68 @@ describe("createRecommendationReason", () => {
 		expect(createRecommendationReason(candidate, profile)).toBe(
 			"Recommended because you responded well to Alien and it matches the Horror titles you keep coming back to."
 		);
+	});
+});
+
+describe("buildRecommendationHistoryDiagnostics", () => {
+	it("computes overall and per-source performance from impressions and feedback", () => {
+		const diagnostics = buildRecommendationHistoryDiagnostics({
+			feedbackRows: [
+				{
+					genreIds: "[28]",
+					isDisliked: false,
+					isLiked: true,
+					mediaType: "movies",
+					title: "Accepted",
+					tmdbId: 71,
+					updatedAt: new Date("2026-04-15T12:05:00.000Z"),
+				},
+				{
+					genreIds: "[18]",
+					isDisliked: true,
+					isLiked: false,
+					mediaType: "movies",
+					title: "Declined",
+					tmdbId: 72,
+					updatedAt: new Date("2026-04-15T12:10:00.000Z"),
+				},
+			],
+			impressionRows: [
+				createImpressionRow({
+					createdAt: new Date("2026-04-15T12:00:00.000Z"),
+					source: "related",
+					tmdbId: 71,
+				}),
+				createImpressionRow({
+					createdAt: new Date("2026-04-15T12:02:00.000Z"),
+					source: "discover",
+					tmdbId: 72,
+				}),
+				createImpressionRow({
+					createdAt: new Date("2026-04-15T12:03:00.000Z"),
+					source: "discover",
+					tmdbId: 72,
+				}),
+			],
+			profile: buildRecommendationTasteProfile([
+				{
+					genreIds: [28],
+					kind: "positive",
+					mediaType: "movies",
+					weight: 5,
+				},
+			]),
+			seedCount: 2,
+			signalCount: 4,
+		});
+
+		expect(diagnostics.acceptedCount).toBe(1);
+		expect(diagnostics.declinedCount).toBe(1);
+		expect(diagnostics.impressionCount).toBe(3);
+		expect(diagnostics.repeatExposureRate).toBeCloseTo(1 / 3);
+		expect(diagnostics.sourceDiagnostics.related.acceptedCount).toBe(1);
+		expect(diagnostics.sourceDiagnostics.discover.declinedCount).toBe(1);
+		expect(diagnostics.mode).toBe("personalized");
+		expect(diagnostics.topMovieGenres).toEqual(["Action"]);
 	});
 });

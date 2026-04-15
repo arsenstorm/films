@@ -37,6 +37,7 @@ const ONE_GENRE_OVERLAP_PENALTY = 0.65;
 const MULTI_GENRE_OVERLAP_PENALTY = 1.4;
 const STRONG_WATCHLIST_INTEREST_THRESHOLD = 6;
 const DISCOVERY_MINIMUM_VOTE_COUNT = 150;
+const RECOMMENDATION_RERANK_BOOST_MULTIPLIER = 3.5;
 export const MAX_DISCOVERY_GENRES = 3;
 export const MAX_RELATED_SEEDS_PER_TYPE = 1;
 export const RECOMMENDATION_BATCH_SIZE = 6;
@@ -63,6 +64,7 @@ export interface RecommendationCandidate {
 	explicitInterestScore: number;
 	media: BrowseMediaItem;
 	popularity: number;
+	rerankScore?: number;
 	seedTitle?: string | null;
 	source: RecommendationSource;
 	voteCount: number;
@@ -121,9 +123,16 @@ export interface RecommendationScoreBreakdown {
 	negativeAffinityPenalty: number;
 	popularityScore: number;
 	positiveAffinityScore: number;
+	rerankScore: number;
 	sourceScore: number;
 	totalScore: number;
 	voteCountScore: number;
+}
+
+export interface RecommendationRerankScore {
+	mediaId: number;
+	mediaType: MediaType;
+	score: number;
 }
 
 export interface RecommendationResult {
@@ -132,7 +141,44 @@ export interface RecommendationResult {
 	source: RecommendationSource;
 }
 
+export type RecommendationGenerationMode = "cold-start" | "personalized";
+
+export interface RecommendationGenerationMetadata {
+	mode: RecommendationGenerationMode;
+	seedCount: number;
+	signalCount: number;
+	topMovieGenres: string[];
+	topShowGenres: string[];
+}
+
+export interface RecommendationSourceDiagnostics {
+	acceptanceRate: number;
+	acceptedCount: number;
+	declinedCount: number;
+	impressionCount: number;
+}
+
+export interface RecommendationHistoryDiagnostics {
+	acceptanceRate: number;
+	acceptedCount: number;
+	declinedCount: number;
+	declineRate: number;
+	impressionCount: number;
+	mode: RecommendationGenerationMode;
+	repeatExposureRate: number;
+	seedCount: number;
+	signalCount: number;
+	sourceDiagnostics: Record<
+		RecommendationSource,
+		RecommendationSourceDiagnostics
+	>;
+	topMovieGenres: string[];
+	topShowGenres: string[];
+	uniqueImpressionCount: number;
+}
+
 export interface RecommendationBatchResult {
+	metadata: RecommendationGenerationMetadata;
 	recommendations: RecommendationResult[];
 }
 
@@ -258,6 +304,24 @@ function getEffectiveGenreWeight(
 		getPositiveGenreWeight(profile, mediaType, genreId) -
 		getNegativeGenreWeight(profile, mediaType, genreId)
 	);
+}
+
+function getTopGenreNamesForProfile(
+	profile: RecommendationTasteProfile,
+	mediaType: MediaType
+): string[] {
+	const topGenreIds = Object.keys(profile.positiveGenreWeights[mediaType])
+		.map((genreId) => Number(genreId))
+		.map((genreId) => ({
+			genreId,
+			weight: getEffectiveGenreWeight(profile, mediaType, genreId),
+		}))
+		.filter((entry) => entry.weight > 0)
+		.sort((leftEntry, rightEntry) => rightEntry.weight - leftEntry.weight)
+		.slice(0, 3)
+		.map((entry) => entry.genreId);
+
+	return getGenreNames(topGenreIds);
 }
 
 function getCandidatePositiveAffinity(
@@ -704,6 +768,7 @@ function buildRecommendationScoreBreakdownFromStats(input: {
 		input.candidate.voteCount / 2500
 	);
 	const availabilityBoost = input.candidate.availabilityScore ?? 0;
+	const rerankScore = input.candidate.rerankScore ?? 0;
 	const impressionPenalty = getImpressionPenalty(
 		input.candidate,
 		input.impressionStats
@@ -714,7 +779,8 @@ function buildRecommendationScoreBreakdownFromStats(input: {
 		positiveAffinityScore +
 		popularityScore +
 		voteCountScore +
-		availabilityBoost -
+		availabilityBoost +
+		rerankScore -
 		negativeAffinityPenalty -
 		impressionPenalty;
 
@@ -725,6 +791,7 @@ function buildRecommendationScoreBreakdownFromStats(input: {
 		negativeAffinityPenalty,
 		popularityScore,
 		positiveAffinityScore,
+		rerankScore,
 		sourceScore,
 		totalScore,
 		voteCountScore,
@@ -737,6 +804,36 @@ export function scoreRecommendationCandidate(input: {
 	profile: RecommendationTasteProfile;
 }): number {
 	return buildRecommendationScoreBreakdown(input).totalScore;
+}
+
+export function applyRecommendationRerankScores(input: {
+	candidates: RecommendationCandidate[];
+	rerankScores: RecommendationRerankScore[];
+}): RecommendationCandidate[] {
+	const rerankScoresByKey = new Map(
+		input.rerankScores.map((rerankScore) => [
+			getRecommendationKey({
+				mediaId: rerankScore.mediaId,
+				mediaType: rerankScore.mediaType,
+			}),
+			rerankScore.score * RECOMMENDATION_RERANK_BOOST_MULTIPLIER,
+		])
+	);
+
+	return input.candidates.map((candidate) => {
+		const rerankScore = rerankScoresByKey.get(
+			getRecommendationMediaKey(candidate.media)
+		);
+
+		if (rerankScore === undefined) {
+			return candidate;
+		}
+
+		return {
+			...candidate,
+			rerankScore,
+		};
+	});
 }
 
 function dedupeRecommendationCandidates(input: {
@@ -772,6 +869,14 @@ function dedupeRecommendationCandidates(input: {
 		.map((entry) => entry.candidate);
 }
 
+export function rankRecommendationCandidates(input: {
+	candidates: RecommendationCandidate[];
+	impressionRows: RecommendationImpressionRow[];
+	profile: RecommendationTasteProfile;
+}): RecommendationCandidate[] {
+	return dedupeRecommendationCandidates(input);
+}
+
 function getMatchedReasonGenres(
 	candidate: RecommendationCandidate,
 	profile: RecommendationTasteProfile
@@ -795,8 +900,17 @@ function getMatchedReasonGenres(
 
 export function createRecommendationReason(
 	candidate: RecommendationCandidate,
-	profile: RecommendationTasteProfile
+	profile: RecommendationTasteProfile,
+	options?: {
+		isColdStart?: boolean;
+	}
 ): string {
+	if (options?.isColdStart) {
+		return candidate.media.mediaType === "movies"
+			? "Popular right now while we learn your movie taste."
+			: "Popular right now while we learn your TV taste.";
+	}
+
 	const matchingGenres = getMatchedReasonGenres(candidate, profile);
 
 	if (
@@ -827,6 +941,181 @@ export function createRecommendationReason(
 	return candidate.media.mediaType === "movies"
 		? "Recommended based on the kinds of movies you keep coming back to."
 		: "Recommended based on the kinds of shows you keep coming back to.";
+}
+
+function createEmptySourceDiagnostics(): Record<
+	RecommendationSource,
+	RecommendationSourceDiagnostics
+> {
+	return {
+		discover: {
+			acceptanceRate: 0,
+			acceptedCount: 0,
+			declinedCount: 0,
+			impressionCount: 0,
+		},
+		related: {
+			acceptanceRate: 0,
+			acceptedCount: 0,
+			declinedCount: 0,
+			impressionCount: 0,
+		},
+		watchlist: {
+			acceptanceRate: 0,
+			acceptedCount: 0,
+			declinedCount: 0,
+			impressionCount: 0,
+		},
+	};
+}
+
+function buildRecommendationImpressionDiagnostics(
+	impressionRows: RecommendationImpressionRow[]
+): {
+	impressionsByMediaKey: Map<string, RecommendationImpressionRow[]>;
+	sourceDiagnostics: Record<
+		RecommendationSource,
+		RecommendationSourceDiagnostics
+	>;
+	uniqueImpressionCount: number;
+} {
+	const sourceDiagnostics = createEmptySourceDiagnostics();
+	const impressionsByMediaKey = new Map<
+		string,
+		RecommendationImpressionRow[]
+	>();
+	const uniqueImpressionKeys = new Set<string>();
+
+	for (const impressionRow of impressionRows) {
+		sourceDiagnostics[impressionRow.source].impressionCount += 1;
+		const mediaKey = getRecommendationKey({
+			mediaId: impressionRow.tmdbId,
+			mediaType: impressionRow.mediaType,
+		});
+		const currentRows = impressionsByMediaKey.get(mediaKey) ?? [];
+
+		currentRows.push(impressionRow);
+		impressionsByMediaKey.set(mediaKey, currentRows);
+		uniqueImpressionKeys.add(mediaKey);
+	}
+
+	for (const rows of impressionsByMediaKey.values()) {
+		rows.sort(
+			(leftRow, rightRow) =>
+				rightRow.createdAt.getTime() - leftRow.createdAt.getTime()
+		);
+	}
+
+	return {
+		impressionsByMediaKey,
+		sourceDiagnostics,
+		uniqueImpressionCount: uniqueImpressionKeys.size,
+	};
+}
+
+function applyFeedbackToSourceDiagnostics(input: {
+	feedbackRows: RecommendationFeedbackRow[];
+	impressionsByMediaKey: Map<string, RecommendationImpressionRow[]>;
+	sourceDiagnostics: Record<
+		RecommendationSource,
+		RecommendationSourceDiagnostics
+	>;
+}): { acceptedCount: number; declinedCount: number } {
+	let acceptedCount = 0;
+	let declinedCount = 0;
+
+	for (const feedbackRow of input.feedbackRows) {
+		if (!(feedbackRow.isLiked || feedbackRow.isDisliked)) {
+			continue;
+		}
+
+		const mediaKey = getRecommendationKey({
+			mediaId: feedbackRow.tmdbId,
+			mediaType: feedbackRow.mediaType,
+		});
+		const matchingImpression = input.impressionsByMediaKey
+			.get(mediaKey)
+			?.find(
+				(impressionRow) =>
+					impressionRow.createdAt.getTime() <= feedbackRow.updatedAt.getTime()
+			);
+
+		if (feedbackRow.isLiked) {
+			acceptedCount += 1;
+
+			if (matchingImpression) {
+				input.sourceDiagnostics[matchingImpression.source].acceptedCount += 1;
+			}
+		}
+
+		if (feedbackRow.isDisliked) {
+			declinedCount += 1;
+
+			if (matchingImpression) {
+				input.sourceDiagnostics[matchingImpression.source].declinedCount += 1;
+			}
+		}
+	}
+
+	return {
+		acceptedCount,
+		declinedCount,
+	};
+}
+
+function finalizeSourceAcceptanceRates(
+	sourceDiagnostics: Record<
+		RecommendationSource,
+		RecommendationSourceDiagnostics
+	>
+): void {
+	for (const diagnostics of Object.values(sourceDiagnostics)) {
+		diagnostics.acceptanceRate =
+			diagnostics.impressionCount > 0
+				? diagnostics.acceptedCount / diagnostics.impressionCount
+				: 0;
+	}
+}
+
+export function buildRecommendationHistoryDiagnostics(input: {
+	feedbackRows: RecommendationFeedbackRow[];
+	impressionRows: RecommendationImpressionRow[];
+	profile: RecommendationTasteProfile;
+	seedCount: number;
+	signalCount: number;
+}): RecommendationHistoryDiagnostics {
+	const { impressionsByMediaKey, sourceDiagnostics, uniqueImpressionCount } =
+		buildRecommendationImpressionDiagnostics(input.impressionRows);
+	const { acceptedCount, declinedCount } = applyFeedbackToSourceDiagnostics({
+		feedbackRows: input.feedbackRows,
+		impressionsByMediaKey,
+		sourceDiagnostics,
+	});
+
+	finalizeSourceAcceptanceRates(sourceDiagnostics);
+
+	const impressionCount = input.impressionRows.length;
+	const repeatExposureCount = Math.max(
+		0,
+		impressionCount - uniqueImpressionCount
+	);
+
+	return {
+		acceptanceRate: impressionCount > 0 ? acceptedCount / impressionCount : 0,
+		acceptedCount,
+		declineRate: impressionCount > 0 ? declinedCount / impressionCount : 0,
+		declinedCount,
+		impressionCount,
+		mode: input.signalCount > 0 ? "personalized" : "cold-start",
+		repeatExposureRate:
+			impressionCount > 0 ? repeatExposureCount / impressionCount : 0,
+		seedCount: input.seedCount,
+		signalCount: input.signalCount,
+		sourceDiagnostics,
+		topMovieGenres: getTopGenreNamesForProfile(input.profile, "movies"),
+		topShowGenres: getTopGenreNamesForProfile(input.profile, "tv"),
+		uniqueImpressionCount,
+	};
 }
 
 export function pickRecommendationBatch(input: {
@@ -900,12 +1189,24 @@ export function buildRecommendationBatch(input: {
 	batchSize?: number;
 	candidates: RecommendationCandidate[];
 	impressionRows: RecommendationImpressionRow[];
+	isColdStart?: boolean;
 	profile: RecommendationTasteProfile;
+	seedCount?: number;
+	signalCount?: number;
 }): RecommendationBatchResult {
 	return {
+		metadata: {
+			mode: input.isColdStart ? "cold-start" : "personalized",
+			seedCount: input.seedCount ?? 0,
+			signalCount: input.signalCount ?? 0,
+			topMovieGenres: getTopGenreNamesForProfile(input.profile, "movies"),
+			topShowGenres: getTopGenreNamesForProfile(input.profile, "tv"),
+		},
 		recommendations: pickRecommendationBatch(input).map((candidate) => ({
 			media: candidate.media,
-			reason: createRecommendationReason(candidate, input.profile),
+			reason: createRecommendationReason(candidate, input.profile, {
+				isColdStart: input.isColdStart,
+			}),
 			source: candidate.source,
 		})),
 	};

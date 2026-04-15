@@ -37,3 +37,9 @@ export function getMediaTrackerStateQueryKey(input: {
 export function getRecommendationQueryKey(): readonly ["recommendation"] {
 	return ["recommendation"] as const;
 }
+
+export function getRecommendationQueueQueryKey(): readonly [
+	"recommendation-queue",
+] {
+	return ["recommendation-queue"] as const;
+}
