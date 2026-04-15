@@ -1,6 +1,6 @@
 export type AuthFormMode = "sign-in" | "sign-up";
 
-export const DEFAULT_AUTHENTICATED_PATH = "/movies";
+export const DEFAULT_AUTHENTICATED_PATH = "/all";
 export const DEFAULT_SIGN_IN_SEARCH = {
 	next: DEFAULT_AUTHENTICATED_PATH,
 } as const;

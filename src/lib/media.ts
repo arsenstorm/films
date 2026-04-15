@@ -1,4 +1,5 @@
 export type MediaType = "movies" | "tv";
+export type BrowseMediaType = MediaType | "all";
 export type BrowseView = "discover" | "watchlist" | "favorites" | "watched";
 export type MediaViewTransitionElement =
 	| "back-link"
@@ -21,13 +22,18 @@ export const DEFAULT_BROWSE_SEARCH: BrowseSearch = {
 };
 
 const VALID_MEDIA_TYPES = new Set<MediaType>(["movies", "tv"]);
+const VALID_BROWSE_MEDIA_TYPES = new Set<BrowseMediaType>([
+	"all",
+	"movies",
+	"tv",
+]);
 const VALID_BROWSE_VIEWS = new Set<BrowseView>([
 	"discover",
 	"watchlist",
 	"favorites",
 	"watched",
 ]);
-const BROWSE_PATH_PATTERN = /^\/(movies|tv)\/?$/;
+const BROWSE_PATH_PATTERN = /^\/(all|movies|tv)\/?$/;
 const DETAILS_PATH_PATTERN = /^\/(movies|tv)\/\d+\/?$/;
 
 export function parseBrowseSearch(
@@ -74,6 +80,14 @@ export function getBrowseHref(pathname: string, search: BrowseSearch): string {
 	return searchString ? `${pathname}?${searchString}` : pathname;
 }
 
+export function parseBrowseMediaType(value: string): BrowseMediaType {
+	if (VALID_BROWSE_MEDIA_TYPES.has(value as BrowseMediaType)) {
+		return value as BrowseMediaType;
+	}
+
+	throw new Error("Invalid browse media type.");
+}
+
 export function parseMediaType(value: string): MediaType {
 	if (VALID_MEDIA_TYPES.has(value as MediaType)) {
 		return value as MediaType;
@@ -112,7 +126,7 @@ export function getMediaRouteViewTransitionTypes(
 	if (
 		browseFromMatch &&
 		detailsToMatch &&
-		browseFromMatch[1] === detailsToMatch[1]
+		(browseFromMatch[1] === "all" || browseFromMatch[1] === detailsToMatch[1])
 	) {
 		return ["media-detail-enter"];
 	}
@@ -120,7 +134,7 @@ export function getMediaRouteViewTransitionTypes(
 	if (
 		detailsFromMatch &&
 		browseToMatch &&
-		detailsFromMatch[1] === browseToMatch[1]
+		(browseToMatch[1] === "all" || detailsFromMatch[1] === browseToMatch[1])
 	) {
 		return ["media-detail-exit"];
 	}

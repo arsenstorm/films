@@ -75,6 +75,9 @@ export default function MediaDetailsPage({
 		typeof rawReturnToHref === "string"
 			? getSafeRedirectPath(rawReturnToHref)
 			: null;
+	const resolvedBackLabel = returnToHref?.startsWith("/all")
+		? "Back to all"
+		: backLabel;
 	const backLinkTransitionStyle = {
 		viewTransitionClass: "media-detail-secondary",
 		viewTransitionName: getMediaViewTransitionName(type, id, "back-link"),
@@ -156,7 +159,7 @@ export default function MediaDetailsPage({
 								type="button"
 							>
 								<ArrowLeft className="-ml-0.5 size-4" />
-								{backLabel}
+								{resolvedBackLabel}
 							</button>
 						</div>
 

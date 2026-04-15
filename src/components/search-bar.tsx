@@ -5,8 +5,13 @@ import { Menu, Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTheme } from "@/components/theme-provider";
 import ThemeToggle from "@/components/theme-toggle";
-import { fetchMovies, fetchShows } from "@/lib/browse";
-import { type BrowseView, getBrowseHref, parseBrowseSearch } from "@/lib/media";
+import { fetchAllMedia, fetchMovies, fetchShows } from "@/lib/browse";
+import {
+	type BrowseMediaType,
+	type BrowseView,
+	getBrowseHref,
+	parseBrowseSearch,
+} from "@/lib/media";
 import { getBrowseQueryKey } from "@/lib/query";
 
 const browseViewOptions: Array<{ label: string; value: BrowseView }> = [
@@ -28,14 +33,49 @@ const browseViewOptions: Array<{ label: string; value: BrowseView }> = [
 	},
 ];
 
+const browseTypeOptions: Array<{
+	label: string;
+	value: BrowseMediaType;
+}> = [
+	{
+		label: "All",
+		value: "all",
+	},
+	{
+		label: "Movies",
+		value: "movies",
+	},
+	{
+		label: "TV Shows",
+		value: "tv",
+	},
+];
+
+function getBrowsePlaceholder(type: BrowseMediaType): string {
+	if (type === "all") {
+		return "Search titles...";
+	}
+
+	return type === "tv" ? "Search TV shows..." : "Search movies...";
+}
+
 export default function SearchBar() {
 	const location = useLocation();
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const { isPending, setTheme, theme } = useTheme();
-	const isMoviesPage = location.pathname === "/movies";
-	const isTvPage = location.pathname === "/tv";
-	const currentType = location.pathname.startsWith("/tv") ? "tv" : "movies";
+	let currentType: BrowseMediaType = "movies";
+
+	if (location.pathname === "/all") {
+		currentType = "all";
+	} else if (location.pathname === "/tv") {
+		currentType = "tv";
+	}
+	const isBrowsePage =
+		location.pathname === "/all" ||
+		location.pathname === "/movies" ||
+		location.pathname === "/tv";
+	const searchPlaceholder = getBrowsePlaceholder(currentType);
 	const searchParams = new URLSearchParams(location.searchStr);
 	const currentSearch = parseBrowseSearch({
 		page: searchParams.get("page"),
@@ -47,10 +87,28 @@ export default function SearchBar() {
 	const [searchValue, setSearchValue] = useState(currentSearchValue);
 
 	function prefetchBrowse(
-		type: "movies" | "tv",
+		type: BrowseMediaType,
 		view: BrowseView,
 		query: string
 	): void {
+		if (type === "all") {
+			queryClient
+				.prefetchQuery({
+					queryFn: () => fetchAllMedia(query, 1, view),
+					queryKey: getBrowseQueryKey({
+						page: 1,
+						searchQuery: query,
+						type,
+						view,
+					}),
+				})
+				.catch(() => {
+					return undefined;
+				});
+
+			return;
+		}
+
 		if (type === "movies") {
 			queryClient
 				.prefetchQuery({
@@ -89,7 +147,7 @@ export default function SearchBar() {
 	}, [currentSearchValue]);
 
 	useEffect(() => {
-		if (!(isMoviesPage || isTvPage)) {
+		if (!isBrowsePage) {
 			return;
 		}
 
@@ -121,8 +179,7 @@ export default function SearchBar() {
 	}, [
 		currentSearchValue,
 		currentSearch.view,
-		isMoviesPage,
-		isTvPage,
+		isBrowsePage,
 		location.pathname,
 		location.searchStr,
 		navigate,
@@ -144,7 +201,7 @@ export default function SearchBar() {
 						onChange={(event) => {
 							setSearchValue(event.target.value);
 						}}
-						placeholder={isTvPage ? "Search TV shows..." : "Search movies..."}
+						placeholder={searchPlaceholder}
 						type="text"
 						value={searchValue}
 					/>
@@ -181,16 +238,7 @@ export default function SearchBar() {
 						</span>
 					</Link>
 					<div className="inline-flex items-center gap-1 rounded-full border border-zinc-200/80 bg-white/85 p-1 shadow-[0_12px_40px_rgba(24,24,27,0.12)] backdrop-blur-md dark:border-zinc-800/80 dark:bg-zinc-950/85">
-						{[
-							{
-								label: "Movies",
-								value: "movies",
-							},
-							{
-								label: "TV Shows",
-								value: "tv",
-							},
-						].map((option) => {
+						{browseTypeOptions.map((option) => {
 							const isActive = location.pathname.startsWith(`/${option.value}`);
 
 							return (
@@ -209,14 +257,14 @@ export default function SearchBar() {
 									}}
 									onFocus={() => {
 										prefetchBrowse(
-											option.value as "movies" | "tv",
+											option.value,
 											currentSearch.view,
 											searchValue
 										);
 									}}
 									onMouseEnter={() => {
 										prefetchBrowse(
-											option.value as "movies" | "tv",
+											option.value,
 											currentSearch.view,
 											searchValue
 										);
@@ -245,7 +293,7 @@ export default function SearchBar() {
 						onChange={(event) => {
 							setSearchValue(event.target.value);
 						}}
-						placeholder={isTvPage ? "Search TV shows..." : "Search movies..."}
+						placeholder={searchPlaceholder}
 						type="text"
 						value={searchValue}
 					/>
@@ -340,16 +388,7 @@ export default function SearchBar() {
 								Type
 							</p>
 							<div className="flex flex-col gap-2">
-								{[
-									{
-										label: "Movies",
-										value: "movies",
-									},
-									{
-										label: "TV Shows",
-										value: "tv",
-									},
-								].map((option) => {
+								{browseTypeOptions.map((option) => {
 									const isActive = location.pathname.startsWith(
 										`/${option.value}`
 									);
@@ -366,14 +405,14 @@ export default function SearchBar() {
 											key={option.value}
 											onFocus={() => {
 												prefetchBrowse(
-													option.value as "movies" | "tv",
+													option.value,
 													currentSearch.view,
 													searchValue
 												);
 											}}
 											onMouseEnter={() => {
 												prefetchBrowse(
-													option.value as "movies" | "tv",
+													option.value,
 													currentSearch.view,
 													searchValue
 												);

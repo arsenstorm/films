@@ -1,6 +1,11 @@
-import type { BrowseView } from "@/lib/media";
-import type { MovieResponse, ShowResponse } from "@/lib/tmdb";
+import type { BrowseMediaType, BrowseView } from "@/lib/media";
+import type {
+	BrowseMediaResponse,
+	MovieResponse,
+	ShowResponse,
+} from "@/lib/tmdb";
 import {
+	getAllMediaFn,
 	getMoviesFn,
 	getShowsFn,
 	searchMoviesFn,
@@ -70,6 +75,30 @@ export function fetchShows(
 		data: {
 			page,
 			type: "popular",
+		},
+	});
+}
+
+export function fetchAllMedia(
+	searchQuery: string,
+	page: number,
+	view: BrowseView
+): Promise<BrowseMediaResponse> {
+	if (view !== "discover") {
+		return getTrackedMediaFn({
+			data: {
+				page,
+				query: searchQuery,
+				type: "all" satisfies BrowseMediaType,
+				view,
+			},
+		}) as Promise<BrowseMediaResponse>;
+	}
+
+	return getAllMediaFn({
+		data: {
+			page,
+			query: searchQuery,
 		},
 	});
 }

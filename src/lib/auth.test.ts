@@ -32,7 +32,7 @@ describe("getSafeRedirectPath", () => {
 describe("parseSignInSearch", () => {
 	it("defaults to the authenticated landing page", () => {
 		expect(parseSignInSearch({})).toEqual({
-			next: "/movies",
+			next: "/all",
 		});
 	});
 

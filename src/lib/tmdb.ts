@@ -91,6 +91,17 @@ export interface ShowResponse {
 	total_results: number;
 }
 
+export type BrowseMediaItem =
+	| (Movie & { mediaType: "movies" })
+	| (Show & { mediaType: "tv" });
+
+export interface BrowseMediaResponse {
+	page: number;
+	results: BrowseMediaItem[];
+	total_pages: number;
+	total_results: number;
+}
+
 export interface Genre {
 	id: number;
 	name: string;

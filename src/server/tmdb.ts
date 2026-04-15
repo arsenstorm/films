@@ -2,6 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 
 import type { MediaType } from "@/lib/media";
 import type {
+	BrowseMediaItem,
+	BrowseMediaResponse,
 	Movie,
 	MovieDetails,
 	MovieParams,
@@ -14,6 +16,22 @@ import type {
 
 const TMDB_API_BASE_URL = "https://api.themoviedb.org/3";
 const MARQUEE_PAGE_COUNT = 4;
+
+interface TmdbMediaResultBase {
+	media_type?: string;
+}
+
+type TmdbMixedMediaResult =
+	| (Movie & TmdbMediaResultBase)
+	| (Show & TmdbMediaResultBase)
+	| (TmdbMediaResultBase & Record<string, unknown>);
+
+interface TmdbMixedMediaResponse {
+	page: number;
+	results: TmdbMixedMediaResult[];
+	total_pages: number;
+	total_results: number;
+}
 
 function appendDefinedSearchParams(
 	searchParams: URLSearchParams,
@@ -53,6 +71,26 @@ async function fetchFromTmdb<T>(
 	}
 
 	return (await response.json()) as T;
+}
+
+function normalizeBrowseMediaResult(
+	result: TmdbMixedMediaResult
+): BrowseMediaItem | null {
+	if (result.media_type === "tv") {
+		return {
+			...(result as Show),
+			mediaType: "tv",
+		};
+	}
+
+	if (result.media_type === "movie") {
+		return {
+			...(result as Movie),
+			mediaType: "movies",
+		};
+	}
+
+	return null;
 }
 
 export function getMovies(params: MovieParams = {}): Promise<MovieResponse> {
@@ -105,6 +143,33 @@ export function searchTvShows(query: string, page = 1): Promise<ShowResponse> {
 	searchParams.set("page", String(page));
 
 	return fetchFromTmdb<ShowResponse>("search/tv", searchParams);
+}
+
+export async function getAllMedia(
+	query: string,
+	page = 1
+): Promise<BrowseMediaResponse> {
+	const searchParams = new URLSearchParams();
+	searchParams.set("page", String(page));
+
+	if (query) {
+		searchParams.set("query", query);
+	}
+
+	const endpoint = query ? "search/multi" : "trending/all/week";
+	const response = await fetchFromTmdb<TmdbMixedMediaResponse>(
+		endpoint,
+		searchParams
+	);
+
+	return {
+		page: response.page,
+		results: response.results
+			.map(normalizeBrowseMediaResult)
+			.filter((result): result is BrowseMediaItem => result !== null),
+		total_pages: response.total_pages,
+		total_results: response.total_results,
+	};
 }
 
 export function getMovieById(id: number): Promise<MovieDetails> {
@@ -182,6 +247,12 @@ export const getShowsFn = createServerFn({ method: "GET" })
 export const searchTvShowsFn = createServerFn({ method: "GET" })
 	.inputValidator((data: { page?: number; query: string }) => data)
 	.handler(async ({ data }) => searchTvShows(data.query, data.page));
+
+export const getAllMediaFn = createServerFn({ method: "GET" })
+	.inputValidator(
+		(data: { page?: number; query?: string } | undefined) => data ?? {}
+	)
+	.handler(async ({ data }) => getAllMedia(data.query ?? "", data.page));
 
 export const getMovieByIdFn = createServerFn({ method: "GET" })
 	.inputValidator((data: { id: number }) => data)

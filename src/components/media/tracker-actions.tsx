@@ -281,7 +281,8 @@ export default function MediaTrackerActions({
 				predicate: (query) =>
 					Array.isArray(query.queryKey) &&
 					query.queryKey[0] === "browse-media" &&
-					query.queryKey[1] === media.mediaType,
+					(query.queryKey[1] === media.mediaType ||
+						query.queryKey[1] === "all"),
 			});
 		},
 	});

@@ -4,7 +4,12 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import MediaCard from "@/components/media/card";
 import MediaCardSkeleton from "@/components/media/skeleton";
-import { type BrowseView, getBrowseHref, type MediaType } from "@/lib/media";
+import {
+	type BrowseMediaType,
+	type BrowseView,
+	getBrowseHref,
+	type MediaType,
+} from "@/lib/media";
 import { getBrowseQueryKey } from "@/lib/query";
 import type { Movie, Show } from "@/lib/tmdb";
 
@@ -21,6 +26,7 @@ interface MediaGridResponse<T extends MediaGridItem> {
 }
 
 interface MediaGridProps<T extends MediaGridItem> {
+	browseType: BrowseMediaType;
 	fetchItems: (
 		searchQuery: string,
 		page: number,
@@ -28,17 +34,18 @@ interface MediaGridProps<T extends MediaGridItem> {
 	) => Promise<MediaGridResponse<T>>;
 	mediaLabel: string;
 	page: number;
+	resolveItemType: (item: T) => MediaType;
 	searchQuery: string;
-	type: MediaType;
 	view: BrowseView;
 }
 
 export default function MediaGrid<T extends MediaGridItem>({
+	browseType,
 	fetchItems,
 	mediaLabel,
 	page,
+	resolveItemType,
 	searchQuery,
-	type,
 	view,
 }: MediaGridProps<T>) {
 	const location = useLocation();
@@ -48,7 +55,7 @@ export default function MediaGrid<T extends MediaGridItem>({
 		queryKey: getBrowseQueryKey({
 			page,
 			searchQuery,
-			type,
+			type: browseType,
 			view,
 		}),
 	});
@@ -111,7 +118,11 @@ export default function MediaGrid<T extends MediaGridItem>({
 		<div className="space-y-6">
 			<div className="grid gap-0.5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
 				{items.map((item) => (
-					<MediaCard key={item.id} media={item} type={type} />
+					<MediaCard
+						key={`${resolveItemType(item)}-${item.id}`}
+						media={item}
+						type={resolveItemType(item)}
+					/>
 				))}
 			</div>
 			{totalPages > 1 ? (

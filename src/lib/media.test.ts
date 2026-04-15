@@ -4,6 +4,7 @@ import {
 	getBrowseHref,
 	getMediaRouteViewTransitionTypes,
 	getMediaViewTransitionName,
+	parseBrowseMediaType,
 	parseBrowseSearch,
 	parseMediaType,
 } from "@/lib/media";
@@ -59,6 +60,20 @@ describe("parseMediaType", () => {
 	});
 });
 
+describe("parseBrowseMediaType", () => {
+	it("accepts supported browse media types", () => {
+		expect(parseBrowseMediaType("all")).toBe("all");
+		expect(parseBrowseMediaType("movies")).toBe("movies");
+		expect(parseBrowseMediaType("tv")).toBe("tv");
+	});
+
+	it("rejects unsupported browse media types", () => {
+		expect(() => {
+			parseBrowseMediaType("anime");
+		}).toThrowError("Invalid browse media type.");
+	});
+});
+
 describe("getBrowseHref", () => {
 	it("builds a clean browse URL for the default state", () => {
 		expect(
@@ -97,10 +112,16 @@ describe("getMediaRouteViewTransitionTypes", () => {
 		expect(getMediaRouteViewTransitionTypes("/movies", "/movies/42")).toEqual([
 			"media-detail-enter",
 		]);
+		expect(getMediaRouteViewTransitionTypes("/all", "/movies/42")).toEqual([
+			"media-detail-enter",
+		]);
 	});
 
 	it("returns the detail exit type when going back to browse", () => {
 		expect(getMediaRouteViewTransitionTypes("/tv/7", "/tv")).toEqual([
+			"media-detail-exit",
+		]);
+		expect(getMediaRouteViewTransitionTypes("/tv/7", "/all")).toEqual([
 			"media-detail-exit",
 		]);
 	});

@@ -13,11 +13,12 @@ export default function MoviesGrid({
 }) {
 	return (
 		<MediaGrid
+			browseType="movies"
 			fetchItems={fetchMovies}
 			mediaLabel={view === "discover" ? "movies" : `${view} movies`}
 			page={page}
+			resolveItemType={() => "movies"}
 			searchQuery={searchQuery}
-			type="movies"
 			view={view}
 		/>
 	);

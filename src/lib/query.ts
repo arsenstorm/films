@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 
-import type { BrowseView, MediaType } from "@/lib/media";
+import type { BrowseMediaType, BrowseView, MediaType } from "@/lib/media";
 
 export function createQueryClient(): QueryClient {
 	return new QueryClient({
@@ -15,9 +15,9 @@ export function createQueryClient(): QueryClient {
 export function getBrowseQueryKey(input: {
 	page: number;
 	searchQuery: string;
-	type: MediaType;
+	type: BrowseMediaType;
 	view: BrowseView;
-}): readonly ["browse-media", MediaType, BrowseView, string, number] {
+}): readonly ["browse-media", BrowseMediaType, BrowseView, string, number] {
 	return [
 		"browse-media",
 		input.type,

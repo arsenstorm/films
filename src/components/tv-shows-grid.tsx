@@ -13,11 +13,12 @@ export default function TVShowsGrid({
 }) {
 	return (
 		<MediaGrid
+			browseType="tv"
 			fetchItems={fetchShows}
 			mediaLabel={view === "discover" ? "shows" : `${view} shows`}
 			page={page}
+			resolveItemType={() => "tv"}
 			searchQuery={searchQuery}
-			type="tv"
 			view={view}
 		/>
 	);

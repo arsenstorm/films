@@ -6,6 +6,7 @@ import MovieMarquee from "@/components/sign-in/movie-marquee";
 import { useTheme } from "@/components/theme-provider";
 import ThemeToggle from "@/components/theme-toggle";
 import { DEFAULT_AUTHENTICATED_PATH } from "@/lib/auth";
+import type { BrowseMediaType, BrowseView } from "@/lib/media";
 import { getMarqueeMoviesFn } from "@/server/tmdb";
 
 const primaryActionClassName =
@@ -50,9 +51,10 @@ type FooterLinkItem =
 			label: string;
 	  }
 	| {
-			kind: "auth";
+			kind: "browse";
 			label: string;
-			nextPath: string;
+			type: BrowseMediaType;
+			view?: BrowseView;
 	  };
 
 const footerLinkGroups = [
@@ -64,19 +66,19 @@ const footerLinkGroups = [
 				label: "What it does",
 			},
 			{
-				kind: "auth",
+				kind: "browse",
 				label: "Start tracking",
-				nextPath: DEFAULT_AUTHENTICATED_PATH,
+				type: "all",
 			},
 			{
-				kind: "auth",
+				kind: "browse",
 				label: "Browse movies",
-				nextPath: "/movies",
+				type: "movies",
 			},
 			{
-				kind: "auth",
+				kind: "browse",
 				label: "Browse TV shows",
-				nextPath: "/tv",
+				type: "tv",
 			},
 		],
 		title: "Navigate",
@@ -84,19 +86,22 @@ const footerLinkGroups = [
 	{
 		links: [
 			{
-				kind: "auth",
+				kind: "browse",
 				label: "Watchlist",
-				nextPath: "/movies?view=watchlist",
+				type: "all",
+				view: "watchlist",
 			},
 			{
-				kind: "auth",
+				kind: "browse",
 				label: "Favourites",
-				nextPath: "/movies?view=favorites",
+				type: "all",
+				view: "favorites",
 			},
 			{
-				kind: "auth",
+				kind: "browse",
 				label: "Watched",
-				nextPath: "/movies?view=watched",
+				type: "all",
+				view: "watched",
 			},
 		],
 		title: "Library",
@@ -164,11 +169,18 @@ function FooterLinkGroup({
 			<ul className="mt-4 grid gap-3 text-base">
 				{links.map((link) => (
 					<li key={link.label}>
-						{link.kind === "auth" ? (
+						{link.kind === "browse" ? (
 							<Link
 								className="font-normal text-zinc-600 transition-colors hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-zinc-50"
-								search={{ next: link.nextPath }}
-								to="/sign-in"
+								params={{
+									type: link.type,
+								}}
+								search={{
+									page: 1,
+									q: "",
+									view: link.view ?? "discover",
+								}}
+								to="/$type"
 							>
 								{link.label}
 							</Link>

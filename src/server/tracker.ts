@@ -2,8 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
-import type { BrowseView, MediaType } from "@/lib/media";
-import type { Movie, MovieResponse, Show, ShowResponse } from "@/lib/tmdb";
+import type { BrowseMediaType, BrowseView, MediaType } from "@/lib/media";
+import type {
+	BrowseMediaResponse,
+	Movie,
+	MovieResponse,
+	Show,
+	ShowResponse,
+} from "@/lib/tmdb";
 import { mediaItem, userMedia } from "@/schema";
 import { getServerSession } from "@/server/auth.server";
 import { db } from "@/server/db";
@@ -36,6 +42,7 @@ interface TrackedMediaRow {
 	backdropPath: string | null;
 	genreIds: string;
 	mediaId: number;
+	mediaType: MediaType;
 	overview: string;
 	posterPath: string | null;
 	releaseDate: string;
@@ -129,6 +136,22 @@ function mapTrackedShow(row: TrackedMediaRow): Show {
 		poster_path: row.posterPath,
 		vote_average: 0,
 		vote_count: 0,
+	};
+}
+
+function mapTrackedBrowseMedia(
+	row: TrackedMediaRow
+): BrowseMediaResponse["results"][number] {
+	if (row.mediaType === "movies") {
+		return {
+			...mapTrackedMovie(row),
+			mediaType: "movies",
+		};
+	}
+
+	return {
+		...mapTrackedShow(row),
+		mediaType: "tv",
 	};
 }
 
@@ -277,16 +300,16 @@ async function updateMediaTrackerState(
 async function getTrackedMedia(input: {
 	page: number;
 	query: string;
-	type: MediaType;
+	type: BrowseMediaType;
 	view: TrackedCollection;
-}): Promise<MovieResponse | ShowResponse> {
+}): Promise<MovieResponse | ShowResponse | BrowseMediaResponse> {
 	const userId = await requireTrackerUserId();
 	const page = Number.isInteger(input.page) && input.page > 0 ? input.page : 1;
 	const trimmedQuery = input.query.trim().toLowerCase();
 	const collectionColumn = getTrackedCollectionColumn(input.view);
 	const whereClause = and(
 		eq(userMedia.userId, userId),
-		eq(mediaItem.mediaType, input.type),
+		input.type === "all" ? undefined : eq(mediaItem.mediaType, input.type),
 		eq(collectionColumn, true),
 		trimmedQuery
 			? sql`lower(${mediaItem.title}) like ${`%${trimmedQuery}%`}`
@@ -304,6 +327,7 @@ async function getTrackedMedia(input: {
 			backdropPath: mediaItem.backdropPath,
 			genreIds: mediaItem.genreIds,
 			mediaId: mediaItem.tmdbId,
+			mediaType: mediaItem.mediaType,
 			overview: mediaItem.overview,
 			posterPath: mediaItem.posterPath,
 			releaseDate: mediaItem.releaseDate,
@@ -317,6 +341,15 @@ async function getTrackedMedia(input: {
 		.offset((page - 1) * TRACKED_PAGE_SIZE);
 	const totalResults = countResult?.count ?? 0;
 	const totalPages = Math.max(1, Math.ceil(totalResults / TRACKED_PAGE_SIZE));
+
+	if (input.type === "all") {
+		return {
+			page,
+			results: rows.map(mapTrackedBrowseMedia),
+			total_pages: totalPages,
+			total_results: totalResults,
+		};
+	}
 
 	if (input.type === "movies") {
 		return {
@@ -348,7 +381,7 @@ export const getTrackedMediaFn = createServerFn({ method: "GET" })
 		(data: {
 			page: number;
 			query: string;
-			type: MediaType;
+			type: BrowseMediaType;
 			view: TrackedCollection;
 		}) => data
 	)
