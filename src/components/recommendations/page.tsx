@@ -1,95 +1,19 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { ArrowLeft, RefreshCcw } from "lucide-react";
-import {
-	motion,
-	useMotionValue,
-	useReducedMotion,
-	useTransform,
-} from "motion/react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { motion } from "motion/react";
+import { useRef } from "react";
 
+import { useRecommendationsController } from "@/components/recommendations/use-recommendations-controller";
 import { DEFAULT_BROWSE_SEARCH } from "@/lib/media";
-import {
-	getRecommendationQueryKey,
-	getRecommendationQueueQueryKey,
-	getRecommendationReviewQueryKey,
-} from "@/lib/query";
-import {
-	getRecommendationMediaKey,
-	mergeRecommendationQueues,
-	removeRecommendationFromBatch,
-	removeRecommendationFromQueue,
-} from "@/lib/recommendation-queue";
-import {
-	type BrowseMediaItem,
-	getGenreNames,
-	getReleaseYear,
-	getTmdbImageUrl,
-} from "@/lib/tmdb";
-import {
-	getRecommendationFn,
-	type RecommendationBatchResult,
-	type RecommendationFeedbackAction,
-	type RecommendationResult,
-	recordRecommendationFeedbackFn,
-	recordRecommendationImpressionFn,
+import { getMediaReleaseDate, getMediaTitle } from "@/lib/media-adapters";
+import { getGenreNames, getReleaseYear, getTmdbImageUrl } from "@/lib/tmdb";
+import type {
+	RecommendationBatchResult,
+	RecommendationResult,
 } from "@/server/recommendations";
-import type { TrackableMediaInput } from "@/server/tracker";
 
-const SWIPE_THRESHOLD_PX = 110;
 const CARD_EXIT_DISTANCE_PX = 220;
-const CARD_EXIT_DURATION_MS = 180;
 const DRAG_TAP_SUPPRESSION_MS = 250;
-const RECOMMENDATION_REFILL_THRESHOLD = 3;
-
-function getRecommendationTitle(media: BrowseMediaItem): string {
-	return media.mediaType === "movies" ? media.title : media.name;
-}
-
-function getRecommendationReleaseDate(media: BrowseMediaItem): string {
-	return media.mediaType === "movies"
-		? media.release_date
-		: media.first_air_date;
-}
-
-function toTrackableMediaInput(media: BrowseMediaItem): TrackableMediaInput {
-	if (media.mediaType === "movies") {
-		return {
-			backdropPath: media.backdrop_path,
-			genreIds: media.genre_ids,
-			mediaId: media.id,
-			mediaType: "movies",
-			overview: media.overview ?? "",
-			posterPath: media.poster_path,
-			releaseDate: media.release_date ?? "",
-			title: media.title,
-		};
-	}
-
-	return {
-		backdropPath: media.backdrop_path,
-		genreIds: media.genre_ids,
-		mediaId: media.id,
-		mediaType: "tv",
-		overview: media.overview ?? "",
-		posterPath: media.poster_path,
-		releaseDate: media.first_air_date ?? "",
-		title: media.name,
-	};
-}
-
-function getErrorMessage(error: unknown): string {
-	return error instanceof Error
-		? error.message
-		: "Something went wrong while loading your recommendation.";
-}
-
-function waitForCardExit(): Promise<void> {
-	return new Promise((resolve) => {
-		window.setTimeout(resolve, CARD_EXIT_DURATION_MS);
-	});
-}
 
 function RecommendationShell({ children }: { children: React.ReactNode }) {
 	return (
@@ -124,7 +48,7 @@ function RecommendationHeader() {
 	);
 }
 
-function RecommendationLoadingState() {
+export function RecommendationsLoadingState() {
 	return (
 		<RecommendationShell>
 			<RecommendationHeader />
@@ -145,12 +69,12 @@ function RecommendationLoadingState() {
 	);
 }
 
-function RecommendationErrorState({
+export function RecommendationsErrorState({
 	errorMessage,
 	onRetry,
 }: {
 	errorMessage: string;
-	onRetry: () => void;
+	onRetry: () => Promise<void> | void;
 }) {
 	return (
 		<RecommendationShell>
@@ -217,11 +141,12 @@ function RecommendationCard({
 	onOpenDetails,
 	recommendation,
 	shouldReduceMotion,
+	swipeThresholdPx,
 }: {
 	actionError: string | null;
-	dragX: ReturnType<typeof useMotionValue<number>>;
-	dragXOpacity: ReturnType<typeof useMotionValue<number>>;
-	dragXRotate: ReturnType<typeof useMotionValue<number>>;
+	dragX: ReturnType<typeof useRecommendationsController>["dragX"];
+	dragXOpacity: ReturnType<typeof useRecommendationsController>["dragXOpacity"];
+	dragXRotate: ReturnType<typeof useRecommendationsController>["dragXRotate"];
 	exitDirection: -1 | 0 | 1;
 	isWorking: boolean;
 	onDecline: () => void;
@@ -229,11 +154,10 @@ function RecommendationCard({
 	onOpenDetails: () => void;
 	recommendation: RecommendationResult;
 	shouldReduceMotion: boolean | null;
+	swipeThresholdPx: number;
 }) {
-	const title = getRecommendationTitle(recommendation.media);
-	const releaseYear = getReleaseYear(
-		getRecommendationReleaseDate(recommendation.media)
-	);
+	const title = getMediaTitle(recommendation.media);
+	const releaseYear = getReleaseYear(getMediaReleaseDate(recommendation.media));
 	const lastDragEndedAtRef = useRef<number>(0);
 	const genres = getGenreNames(recommendation.media.genre_ids.slice(0, 2));
 	const posterUrl = getTmdbImageUrl(
@@ -284,15 +208,12 @@ function RecommendationCard({
 					onDragEnd={(_event, info) => {
 						lastDragEndedAtRef.current = Date.now();
 
-						if (
-							info.offset.x <= -SWIPE_THRESHOLD_PX ||
-							info.velocity.x <= -550
-						) {
+						if (info.offset.x <= -swipeThresholdPx || info.velocity.x <= -550) {
 							onDecline();
 							return;
 						}
 
-						if (info.offset.x >= SWIPE_THRESHOLD_PX || info.velocity.x >= 550) {
+						if (info.offset.x >= swipeThresholdPx || info.velocity.x >= 550) {
 							onLike();
 						}
 					}}
@@ -379,229 +300,27 @@ function RecommendationCard({
 	);
 }
 
-export default function RecommendationsPage() {
-	const navigate = useNavigate();
-	const queryClient = useQueryClient();
-	const shouldReduceMotion = useReducedMotion();
-	const dragX = useMotionValue(0);
-	const dragXRotate = useTransform(dragX, [-180, 0, 180], [-5, 0, 5]);
-	const dragXOpacity = useTransform(dragX, [-220, 0, 220], [0.86, 1, 0.86]);
-	const [actionError, setActionError] = useState<string | null>(null);
-	const [exitDirection, setExitDirection] = useState<-1 | 0 | 1>(0);
-	const [queue, setQueue] = useState<RecommendationResult[]>(
-		() =>
-			queryClient.getQueryData<RecommendationResult[]>(
-				getRecommendationQueueQueryKey()
-			) ?? []
-	);
-	const loggedImpressionKeysRef = useRef<Set<string>>(new Set());
-	const shownRecommendationCountRef = useRef(0);
-	const { data, error, isFetching, isLoading, refetch } = useQuery({
-		queryFn: () => getRecommendationFn(),
-		queryKey: getRecommendationQueryKey(),
-	});
-	const feedbackMutation = useMutation({
-		mutationFn: async ({
-			action,
-			media,
-		}: {
-			action: RecommendationFeedbackAction;
-			media: TrackableMediaInput;
-		}) =>
-			recordRecommendationFeedbackFn({
-				data: {
-					action,
-					media,
-				},
-			}),
-	});
-	const currentRecommendation = queue[0] ?? null;
-	const isWorking = feedbackMutation.isPending || exitDirection !== 0;
+export default function RecommendationsPage({
+	data,
+}: {
+	data: RecommendationBatchResult | null;
+}) {
+	const controller = useRecommendationsController({ data });
 
-	useEffect(() => {
-		setQueue((currentQueue) =>
-			mergeRecommendationQueues(currentQueue, data ?? null)
-		);
-	}, [data]);
-
-	useEffect(() => {
-		queryClient.setQueryData(getRecommendationQueueQueryKey(), queue);
-	}, [queryClient, queue]);
-
-	useEffect(() => {
-		if (!currentRecommendation) {
-			return;
-		}
-
-		const mediaKey = getRecommendationMediaKey(currentRecommendation.media);
-
-		if (loggedImpressionKeysRef.current.has(mediaKey)) {
-			return;
-		}
-
-		loggedImpressionKeysRef.current.add(mediaKey);
-		const position = shownRecommendationCountRef.current;
-		shownRecommendationCountRef.current += 1;
-
-		recordRecommendationImpressionFn({
-			data: {
-				mediaId: currentRecommendation.media.id,
-				mediaType: currentRecommendation.media.mediaType,
-				position,
-				source: currentRecommendation.source,
-			},
-		}).catch(() => {
-			loggedImpressionKeysRef.current.delete(mediaKey);
-			shownRecommendationCountRef.current = Math.max(0, position);
-			return undefined;
-		});
-	}, [currentRecommendation]);
-
-	async function handleFeedback(
-		action: RecommendationFeedbackAction,
-		direction: -1 | 1
-	): Promise<void> {
-		if (!(currentRecommendation && !isWorking)) {
-			return;
-		}
-
-		setActionError(null);
-		setExitDirection(direction);
-		dragX.set(0);
-
-		try {
-			if (!shouldReduceMotion) {
-				await waitForCardExit();
-			}
-
-			await feedbackMutation.mutateAsync({
-				action,
-				media: toTrackableMediaInput(currentRecommendation.media),
-			});
-			const nextQueue = removeRecommendationFromQueue(
-				queue,
-				currentRecommendation.media
-			);
-
-			queryClient.setQueryData(
-				getRecommendationQueryKey(),
-				(currentBatch: RecommendationBatchResult | null | undefined) =>
-					removeRecommendationFromBatch(
-						currentBatch ?? null,
-						currentRecommendation.media
-					)
-			);
-
-			setQueue(nextQueue);
-			queryClient
-				.invalidateQueries({
-					queryKey: getRecommendationReviewQueryKey(),
-				})
-				.catch(() => {
-					return undefined;
-				});
-
-			if (nextQueue.length === 0) {
-				await refetch();
-			} else if (nextQueue.length <= RECOMMENDATION_REFILL_THRESHOLD) {
-				refetch().catch((refetchError) => {
-					setActionError(getErrorMessage(refetchError));
-					return undefined;
-				});
-			}
-		} catch (mutationError) {
-			setActionError(getErrorMessage(mutationError));
-		} finally {
-			setExitDirection(0);
-			dragX.set(0);
-		}
+	if (controller.isLoading) {
+		return <RecommendationsLoadingState />;
 	}
 
-	async function handleOpenDetails(): Promise<void> {
-		if (!(currentRecommendation && !isWorking)) {
-			return;
-		}
-
-		setActionError(null);
-
-		try {
-			await navigate({
-				params: {
-					id: String(currentRecommendation.media.id),
-					type: currentRecommendation.media.mediaType,
-				},
-				search: DEFAULT_BROWSE_SEARCH,
-				state: (currentState) => ({
-					...currentState,
-					returnToHref: "/recommendations",
-				}),
-				to: "/$type/$id",
-			});
-		} catch (mutationError) {
-			setActionError(getErrorMessage(mutationError));
-		}
-	}
-
-	const handleKeyDown = useEffectEvent((event: KeyboardEvent) => {
-		if (
-			event.defaultPrevented ||
-			event.metaKey ||
-			event.ctrlKey ||
-			event.altKey ||
-			!currentRecommendation ||
-			isWorking
-		) {
-			return;
-		}
-
-		if (event.key === "ArrowLeft") {
-			event.preventDefault();
-			handleFeedback("declined", -1).catch(() => {
-				return undefined;
-			});
-		}
-
-		if (event.key === "ArrowRight") {
-			event.preventDefault();
-			handleFeedback("accepted", 1).catch(() => {
-				return undefined;
-			});
-		}
-
-		if (event.key === "Enter") {
-			event.preventDefault();
-			handleOpenDetails().catch(() => {
-				return undefined;
-			});
-		}
-	});
-
-	useEffect(() => {
-		window.addEventListener("keydown", handleKeyDown);
-
-		return () => {
-			window.removeEventListener("keydown", handleKeyDown);
-		};
-	}, []);
-
-	if (isLoading || (isFetching && !currentRecommendation)) {
-		return <RecommendationLoadingState />;
-	}
-
-	if (error && !currentRecommendation) {
+	if (controller.loadError && !controller.currentRecommendation) {
 		return (
-			<RecommendationErrorState
-				errorMessage={getErrorMessage(error)}
-				onRetry={() => {
-					refetch().catch(() => {
-						return undefined;
-					});
-				}}
+			<RecommendationsErrorState
+				errorMessage={controller.loadError}
+				onRetry={controller.retry}
 			/>
 		);
 	}
 
-	if (!currentRecommendation) {
+	if (!controller.currentRecommendation) {
 		return <RecommendationEmptyState />;
 	}
 
@@ -611,29 +330,18 @@ export default function RecommendationsPage() {
 			<div className="flex flex-1 items-center justify-center px-5 pt-6 pb-8 sm:px-6 sm:pt-8 sm:pb-10">
 				<div className="w-full">
 					<RecommendationCard
-						actionError={actionError}
-						dragX={dragX}
-						dragXOpacity={dragXOpacity}
-						dragXRotate={dragXRotate}
-						exitDirection={exitDirection}
-						isWorking={isWorking}
-						onDecline={() => {
-							handleFeedback("declined", -1).catch(() => {
-								return undefined;
-							});
-						}}
-						onLike={() => {
-							handleFeedback("accepted", 1).catch(() => {
-								return undefined;
-							});
-						}}
-						onOpenDetails={() => {
-							handleOpenDetails().catch(() => {
-								return undefined;
-							});
-						}}
-						recommendation={currentRecommendation}
-						shouldReduceMotion={shouldReduceMotion}
+						actionError={controller.actionError}
+						dragX={controller.dragX}
+						dragXOpacity={controller.dragXOpacity}
+						dragXRotate={controller.dragXRotate}
+						exitDirection={controller.exitDirection}
+						isWorking={controller.isWorking}
+						onDecline={controller.onDecline}
+						onLike={controller.onLike}
+						onOpenDetails={controller.onOpenDetails}
+						recommendation={controller.currentRecommendation}
+						shouldReduceMotion={controller.shouldReduceMotion}
+						swipeThresholdPx={controller.swipeThresholdPx}
 					/>
 				</div>
 			</div>

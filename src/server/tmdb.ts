@@ -1,6 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
-
 import type { MediaType } from "@/lib/media";
+import {
+	normalizeMovieBrowseMedia,
+	normalizeShowBrowseMedia,
+} from "@/lib/media-adapters";
 import type {
 	BrowseMediaItem,
 	BrowseMediaResponse,
@@ -8,6 +11,7 @@ import type {
 	MovieDetails,
 	MovieParams,
 	MovieResponse,
+	Show,
 	ShowDetails,
 	ShowParams,
 	ShowResponse,
@@ -77,17 +81,11 @@ function normalizeBrowseMediaResult(
 	result: TmdbMixedMediaResult
 ): BrowseMediaItem | null {
 	if (result.media_type === "tv") {
-		return {
-			...(result as Show),
-			mediaType: "tv",
-		};
+		return normalizeShowBrowseMedia(result as Show);
 	}
 
 	if (result.media_type === "movie") {
-		return {
-			...(result as Movie),
-			mediaType: "movies",
-		};
+		return normalizeMovieBrowseMedia(result as Movie);
 	}
 
 	return null;

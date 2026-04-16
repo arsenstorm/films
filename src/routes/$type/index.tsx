@@ -1,20 +1,32 @@
-import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
+import {
+	createFileRoute,
+	type ErrorComponentProps,
+	stripSearchParams,
+} from "@tanstack/react-router";
 
-import MediaGrid from "@/components/media/grid";
+import MediaGrid, {
+	MediaGridErrorState,
+	MediaGridLoadingState,
+} from "@/components/media/grid";
 import MoviesGrid from "@/components/movies-grid";
 import SearchBar from "@/components/search-bar";
 import TVShowsGrid from "@/components/tv-shows-grid";
 import { getSafeRedirectPath } from "@/lib/auth";
-import { fetchAllMedia } from "@/lib/browse";
+import {
+	type BrowsePageResult,
+	getBrowseMediaLabel,
+	loadBrowsePage,
+} from "@/lib/browse";
 import {
 	type BrowseMediaType,
+	type BrowseSearch,
 	type BrowseView,
 	DEFAULT_BROWSE_SEARCH,
 	parseBrowseMediaType,
 	parseBrowseSearch,
 } from "@/lib/media";
 import type { BrowseMediaItem } from "@/lib/tmdb";
-import { getSessionStateFn, requireAuthenticatedAccess } from "@/server/auth";
+import { requireAuthenticatedAccess } from "@/server/auth";
 
 function getBrowseTitle(mediaType: BrowseMediaType, view: BrowseView): string {
 	if (mediaType === "all") {
@@ -44,69 +56,138 @@ function getBrowseTitle(mediaType: BrowseMediaType, view: BrowseView): string {
 	}
 }
 
+type BrowseLoaderDeps = Pick<BrowseSearch, "page" | "q" | "view">;
+
 export const Route = createFileRoute("/$type/")({
-	beforeLoad: async ({ location }) => {
-		await requireAuthenticatedAccess(
+	beforeLoad: ({ location }) => {
+		return requireAuthenticatedAccess(
 			getSafeRedirectPath(`${location.pathname}${location.searchStr}`)
 		);
 	},
-	component: MediaBrowsePage,
-	head: ({ params, loaderData }) => ({
-		meta: [
-			{
-				title: getBrowseTitle(
-					parseBrowseMediaType(params.type),
-					(loaderData as unknown as { view: BrowseView })?.view
-				),
-			},
-		],
-	}),
-	loader: async ({ location }) => {
-		const view =
-			"view" in location.search
-				? (location.search.view as BrowseView)
-				: DEFAULT_BROWSE_SEARCH.view;
-		const { isSpecialUser } = await getSessionStateFn();
+	validateSearch: parseBrowseSearch,
+	loaderDeps: ({ search }): BrowseLoaderDeps => {
 		return {
-			isSpecialUser,
-			view,
+			page: search.page,
+			q: search.q,
+			view: search.view,
 		};
 	},
+	loader: ({ deps, params }): Promise<BrowsePageResult> => {
+		return loadBrowsePage({
+			page: deps.page,
+			query: deps.q,
+			type: parseBrowseMediaType(params.type),
+			view: deps.view,
+		});
+	},
+	component: MediaBrowsePage,
+	errorComponent: MediaBrowseRouteError,
+	head: ({ loaderData, params }) => {
+		return {
+			meta: [
+				{
+					title: getBrowseTitle(
+						loaderData?.browseType ?? parseBrowseMediaType(params.type),
+						loaderData?.view ?? DEFAULT_BROWSE_SEARCH.view
+					),
+				},
+			],
+		};
+	},
+	pendingComponent: MediaBrowsePendingState,
 	search: {
 		middlewares: [stripSearchParams(DEFAULT_BROWSE_SEARCH)],
 	},
-	validateSearch: parseBrowseSearch,
+	ssr: "data-only",
 });
 
-function MediaBrowsePage() {
-	const { type } = Route.useParams();
-	const { isSpecialUser } = Route.useLoaderData();
-	const { page, q, view } = Route.useSearch();
-	const browseType = parseBrowseMediaType(type);
-	let grid = <MoviesGrid page={page} searchQuery={q} view={view} />;
-
-	if (browseType === "tv") {
-		grid = <TVShowsGrid page={page} searchQuery={q} view={view} />;
-	} else if (browseType === "all") {
-		grid = (
-			<MediaGrid<BrowseMediaItem>
-				browseType="all"
-				fetchItems={fetchAllMedia}
-				mediaLabel={view === "discover" ? "titles" : `${view} titles`}
-				page={page}
-				resolveItemType={(item) => item.mediaType}
-				searchQuery={q}
-				view={view}
-			/>
-		);
-	}
+function MediaBrowseLayout({ children }: { children: React.ReactNode }) {
+	const routeContext = Route.useRouteContext();
+	const isSpecialUser = routeContext?.isSpecialUser ?? false;
 
 	return (
 		<main className="min-h-screen bg-zinc-100 p-6 pt-2 dark:bg-zinc-950">
 			<header className="mb-2 flex h-16 items-center">
 				<SearchBar isSpecialUser={isSpecialUser} />
 			</header>
-			{grid}
+			{children}
 		</main>
+	);
+}
+
+function BrowseGrid({
+	data,
+	searchQuery,
+}: {
+	data: BrowsePageResult;
+	searchQuery: string;
+}) {
+	switch (data.browseType) {
+		case "movies":
+			return (
+				<MoviesGrid
+					data={data.browsePage}
+					searchQuery={searchQuery}
+					view={data.view}
+				/>
+			);
+		case "tv":
+			return (
+				<TVShowsGrid
+					data={data.browsePage}
+					searchQuery={searchQuery}
+					view={data.view}
+				/>
+			);
+		default:
+			return (
+				<MediaGrid<BrowseMediaItem>
+					data={data.browsePage}
+					mediaLabel={getBrowseMediaLabel(data.browseType, data.view)}
+					resolveItemType={(item) => item.mediaType}
+					searchQuery={searchQuery}
+					view={data.view}
+				/>
+			);
+	}
+}
+
+function MediaBrowsePage() {
+	const loaderData = Route.useLoaderData();
+	const { q } = Route.useSearch();
+
+	if (!loaderData) {
+		return null;
+	}
+
+	return (
+		<MediaBrowseLayout>
+			<BrowseGrid data={loaderData} searchQuery={q} />
+		</MediaBrowseLayout>
+	);
+}
+
+function MediaBrowsePendingState() {
+	return (
+		<MediaBrowseLayout>
+			<MediaGridLoadingState />
+		</MediaBrowseLayout>
+	);
+}
+
+function MediaBrowseRouteError({ error }: ErrorComponentProps) {
+	const { type } = Route.useParams();
+	const { view } = Route.useSearch();
+	const mediaLabel = getBrowseMediaLabel(parseBrowseMediaType(type), view);
+	const errorMessage =
+		error instanceof Error ? error.message : `Failed to fetch ${mediaLabel}`;
+
+	return (
+		<MediaBrowseLayout>
+			<MediaGridErrorState
+				errorMessage={errorMessage}
+				mediaLabel={mediaLabel}
+			/>
+		</MediaBrowseLayout>
 	);
 }

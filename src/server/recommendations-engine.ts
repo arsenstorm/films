@@ -1,11 +1,10 @@
 import { parseStoredGenreIds } from "@/lib/genre-ids";
 import type { MediaType } from "@/lib/media";
+import { type BrowseMediaItem, getGenreNames } from "@/lib/tmdb";
 import {
-	type BrowseMediaItem,
-	getGenreNames,
-	type Movie,
-	type Show,
-} from "@/lib/tmdb";
+	mapTrackedBrowseMedia,
+	type TrackedBrowseMediaRow,
+} from "@/server/tracked-browse-media";
 
 const FAVORITE_SIGNAL_WEIGHT = 8;
 const WATCHED_SIGNAL_WEIGHT = 5;
@@ -70,18 +69,10 @@ export interface RecommendationCandidate {
 	voteCount: number;
 }
 
-export interface TrackedRecommendationRow {
-	backdropPath: string | null;
-	genreIds: string;
+export interface TrackedRecommendationRow extends TrackedBrowseMediaRow {
 	isFavorite: boolean;
 	isInWatchlist: boolean;
 	isWatched: boolean;
-	mediaId: number;
-	mediaType: MediaType;
-	overview: string;
-	posterPath: string | null;
-	releaseDate: string;
-	title: string;
 	updatedAt: Date;
 }
 
@@ -224,60 +215,6 @@ function createEmptyTasteProfile(): RecommendationTasteProfile {
 			movies: 0,
 			tv: 0,
 		},
-	};
-}
-
-function mapTrackedMovie(row: TrackedRecommendationRow): Movie {
-	return {
-		adult: false,
-		backdrop_path: row.backdropPath,
-		genre_ids: parseStoredGenreIds(row.genreIds),
-		id: row.mediaId,
-		original_language: "en",
-		original_title: row.title,
-		overview: row.overview,
-		popularity: 0,
-		poster_path: row.posterPath,
-		release_date: row.releaseDate,
-		title: row.title,
-		video: false,
-		vote_average: 0,
-		vote_count: 0,
-	};
-}
-
-function mapTrackedShow(row: TrackedRecommendationRow): Show {
-	return {
-		adult: false,
-		backdrop_path: row.backdropPath,
-		first_air_date: row.releaseDate,
-		genre_ids: parseStoredGenreIds(row.genreIds),
-		id: row.mediaId,
-		name: row.title,
-		origin_country: [],
-		original_language: "en",
-		original_name: row.title,
-		overview: row.overview,
-		popularity: 0,
-		poster_path: row.posterPath,
-		vote_average: 0,
-		vote_count: 0,
-	};
-}
-
-export function mapTrackedBrowseMedia(
-	row: TrackedRecommendationRow
-): BrowseMediaItem {
-	if (row.mediaType === "movies") {
-		return {
-			...mapTrackedMovie(row),
-			mediaType: "movies",
-		};
-	}
-
-	return {
-		...mapTrackedShow(row),
-		mediaType: "tv",
 	};
 }
 

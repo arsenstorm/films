@@ -3,7 +3,12 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { DEFAULT_AUTHENTICATED_PATH, getSafeRedirectPath } from "@/lib/auth";
 
-let cachedAuthenticatedAccess: boolean | null = null;
+interface SessionState {
+	isAuthenticated: boolean;
+	isSpecialUser: boolean;
+}
+
+let cachedSessionState: SessionState | null = null;
 
 interface SignInInput {
 	email: string;
@@ -80,19 +85,19 @@ export const signUpFn = createServerFn({ method: "POST" })
 
 export async function requireAuthenticatedAccess(
 	nextPath: string
-): Promise<void> {
-	if (typeof window !== "undefined" && cachedAuthenticatedAccess === true) {
-		return;
+): Promise<SessionState> {
+	if (typeof window !== "undefined" && cachedSessionState?.isAuthenticated) {
+		return cachedSessionState;
 	}
 
-	const { isAuthenticated } = await getSessionStateFn();
+	const sessionState = await getSessionStateFn();
 
-	if (isAuthenticated) {
+	if (sessionState.isAuthenticated) {
 		if (typeof window !== "undefined") {
-			cachedAuthenticatedAccess = true;
+			cachedSessionState = sessionState;
 		}
 
-		return;
+		return sessionState;
 	}
 
 	throw redirect({
@@ -106,9 +111,9 @@ export async function requireAuthenticatedAccess(
 export async function requireSpecialUserAccess(
 	nextPath: string
 ): Promise<void> {
-	const { isAuthenticated, isSpecialUser } = await getSessionStateFn();
+	const sessionState = await getSessionStateFn();
 
-	if (!isAuthenticated) {
+	if (!sessionState.isAuthenticated) {
 		throw redirect({
 			search: {
 				next: getSafeRedirectPath(nextPath),
@@ -118,10 +123,10 @@ export async function requireSpecialUserAccess(
 	}
 
 	if (typeof window !== "undefined") {
-		cachedAuthenticatedAccess = true;
+		cachedSessionState = sessionState;
 	}
 
-	if (isSpecialUser) {
+	if (sessionState.isSpecialUser) {
 		return;
 	}
 

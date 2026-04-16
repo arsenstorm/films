@@ -1,18 +1,15 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import clsx from "clsx";
 import { Menu, Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTheme } from "@/components/theme-provider";
 import ThemeToggle from "@/components/theme-toggle";
-import { fetchAllMedia, fetchMovies, fetchShows } from "@/lib/browse";
 import {
 	type BrowseMediaType,
 	type BrowseView,
 	getBrowseHref,
 	parseBrowseSearch,
 } from "@/lib/media";
-import { getBrowseQueryKey } from "@/lib/query";
 
 const browseViewOptions: Array<{ label: string; value: BrowseView }> = [
 	{
@@ -66,7 +63,6 @@ interface SearchBarProps {
 export default function SearchBar({ isSpecialUser = false }: SearchBarProps) {
 	const location = useLocation();
 	const navigate = useNavigate();
-	const queryClient = useQueryClient();
 	const { isPending, setTheme, theme } = useTheme();
 	let currentType: BrowseMediaType = "movies";
 
@@ -89,62 +85,6 @@ export default function SearchBar({ isSpecialUser = false }: SearchBarProps) {
 	const currentSearchValue = currentSearch.q;
 	const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 	const [searchValue, setSearchValue] = useState(currentSearchValue);
-
-	function prefetchBrowse(
-		type: BrowseMediaType,
-		view: BrowseView,
-		query: string
-	): void {
-		if (type === "all") {
-			queryClient
-				.prefetchQuery({
-					queryFn: () => fetchAllMedia(query, 1, view),
-					queryKey: getBrowseQueryKey({
-						page: 1,
-						searchQuery: query,
-						type,
-						view,
-					}),
-				})
-				.catch(() => {
-					return undefined;
-				});
-
-			return;
-		}
-
-		if (type === "movies") {
-			queryClient
-				.prefetchQuery({
-					queryFn: () => fetchMovies(query, 1, view),
-					queryKey: getBrowseQueryKey({
-						page: 1,
-						searchQuery: query,
-						type,
-						view,
-					}),
-				})
-				.catch(() => {
-					return undefined;
-				});
-
-			return;
-		}
-
-		queryClient
-			.prefetchQuery({
-				queryFn: () => fetchShows(query, 1, view),
-				queryKey: getBrowseQueryKey({
-					page: 1,
-					searchQuery: query,
-					type,
-					view,
-				}),
-			})
-			.catch(() => {
-				return undefined;
-			});
-	}
 
 	useEffect(() => {
 		setSearchValue(currentSearchValue);
@@ -259,20 +199,6 @@ export default function SearchBar({ isSpecialUser = false }: SearchBarProps) {
 									onClick={() => {
 										setIsMobileSidebarOpen(false);
 									}}
-									onFocus={() => {
-										prefetchBrowse(
-											option.value,
-											currentSearch.view,
-											searchValue
-										);
-									}}
-									onMouseEnter={() => {
-										prefetchBrowse(
-											option.value,
-											currentSearch.view,
-											searchValue
-										);
-									}}
 									params={{
 										type: option.value,
 									}}
@@ -316,20 +242,12 @@ export default function SearchBar({ isSpecialUser = false }: SearchBarProps) {
 
 				<div className="flex min-w-0 flex-1 items-center justify-end gap-3">
 					{isSpecialUser ? (
-						<>
-							<Link
-								className="inline-flex min-h-9 items-center rounded-full px-3 py-2 font-medium text-xs text-zinc-500 transition-colors hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
-								to="/recommendations"
-							>
-								Recommendations
-							</Link>
-							<Link
-								className="inline-flex min-h-9 items-center rounded-full px-3 py-2 font-medium text-xs text-zinc-500 transition-colors hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
-								to="/recommendations/all"
-							>
-								All recommendations
-							</Link>
-						</>
+						<Link
+							className="inline-flex min-h-9 items-center rounded-full px-3 py-2 font-medium text-xs text-zinc-500 transition-colors hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
+							to="/recommendations/all"
+						>
+							Recommendations
+						</Link>
 					) : null}
 					<div className="inline-flex items-center gap-1 rounded-full border border-zinc-200/80 bg-white/85 p-1 shadow-[0_12px_40px_rgba(24,24,27,0.12)] backdrop-blur-md dark:border-zinc-800/80 dark:bg-zinc-950/85">
 						{browseViewOptions.map((option) => {
@@ -347,12 +265,6 @@ export default function SearchBar({ isSpecialUser = false }: SearchBarProps) {
 									key={option.value}
 									onClick={() => {
 										setIsMobileSidebarOpen(false);
-									}}
-									onFocus={() => {
-										prefetchBrowse(currentType, option.value, searchValue);
-									}}
-									onMouseEnter={() => {
-										prefetchBrowse(currentType, option.value, searchValue);
 									}}
 									params={{
 										type: currentType,
@@ -423,20 +335,6 @@ export default function SearchBar({ isSpecialUser = false }: SearchBarProps) {
 													: "border border-zinc-200/80 bg-white/85 text-zinc-600 shadow-[0_12px_40px_rgba(24,24,27,0.12)] backdrop-blur-md hover:text-zinc-950 dark:border-zinc-800/80 dark:bg-zinc-950/85 dark:text-zinc-300 dark:hover:text-zinc-100"
 											)}
 											key={option.value}
-											onFocus={() => {
-												prefetchBrowse(
-													option.value,
-													currentSearch.view,
-													searchValue
-												);
-											}}
-											onMouseEnter={() => {
-												prefetchBrowse(
-													option.value,
-													currentSearch.view,
-													searchValue
-												);
-											}}
 											params={{
 												type: option.value,
 											}}
@@ -472,12 +370,6 @@ export default function SearchBar({ isSpecialUser = false }: SearchBarProps) {
 													: "border border-zinc-200/80 bg-white/85 text-zinc-600 shadow-[0_12px_40px_rgba(24,24,27,0.12)] backdrop-blur-md hover:text-zinc-950 dark:border-zinc-800/80 dark:bg-zinc-950/85 dark:text-zinc-300 dark:hover:text-zinc-100"
 											)}
 											key={option.value}
-											onFocus={() => {
-												prefetchBrowse(currentType, option.value, searchValue);
-											}}
-											onMouseEnter={() => {
-												prefetchBrowse(currentType, option.value, searchValue);
-											}}
 											params={{
 												type: currentType,
 											}}
@@ -506,18 +398,9 @@ export default function SearchBar({ isSpecialUser = false }: SearchBarProps) {
 										onClick={() => {
 											setIsMobileSidebarOpen(false);
 										}}
-										to="/recommendations"
-									>
-										Recommendations
-									</Link>
-									<Link
-										className="inline-flex min-h-11 items-center rounded-full border border-zinc-200/80 bg-white/85 px-4 py-3 font-medium text-sm text-zinc-600 shadow-[0_12px_40px_rgba(24,24,27,0.12)] backdrop-blur-md transition-colors hover:text-zinc-950 dark:border-zinc-800/80 dark:bg-zinc-950/85 dark:text-zinc-300 dark:hover:text-zinc-100"
-										onClick={() => {
-											setIsMobileSidebarOpen(false);
-										}}
 										to="/recommendations/all"
 									>
-										All recommendations
+										Recommendations
 									</Link>
 								</div>
 							</div>

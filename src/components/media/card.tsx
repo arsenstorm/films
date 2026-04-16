@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 
 import { getSafeRedirectPath } from "@/lib/auth";
 import type { MediaType } from "@/lib/media";
+import { getMediaReleaseDate, getMediaTitle } from "@/lib/media-adapters";
 import {
 	getGenreNames,
 	getReleaseYear,
@@ -12,14 +13,6 @@ import {
 } from "@/lib/tmdb";
 
 type MediaCardItem = Movie | Show;
-
-function getMediaTitle(media: MediaCardItem): string {
-	return "title" in media ? media.title : media.name;
-}
-
-function getMediaReleaseDate(media: MediaCardItem): string {
-	return "title" in media ? media.release_date : media.first_air_date;
-}
 
 export default function MediaCard({
 	media,

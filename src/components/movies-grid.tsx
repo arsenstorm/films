@@ -1,22 +1,20 @@
 import MediaGrid from "@/components/media/grid";
-import { fetchMovies } from "@/lib/browse";
 import type { BrowseView } from "@/lib/media";
+import type { MovieResponse } from "@/lib/tmdb";
 
 export default function MoviesGrid({
-	page,
+	data,
 	searchQuery,
 	view,
 }: {
-	page: number;
+	data: MovieResponse;
 	searchQuery: string;
 	view: BrowseView;
 }) {
 	return (
 		<MediaGrid
-			browseType="movies"
-			fetchItems={fetchMovies}
+			data={data}
 			mediaLabel={view === "discover" ? "movies" : `${view} movies`}
-			page={page}
 			resolveItemType={() => "movies"}
 			searchQuery={searchQuery}
 			view={view}

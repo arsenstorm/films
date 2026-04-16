@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "@tanstack/react-router";
 import { Calligraph } from "calligraph";
 import clsx from "clsx";
 import {
@@ -14,9 +15,9 @@ import { useRef, useState } from "react";
 
 import {
 	getMediaTrackerStateQueryKey,
-	getRecommendationQueryKey,
-	getRecommendationReviewQueryKey,
+	getRecommendationQueueQueryKey,
 } from "@/lib/query";
+import { isRecommendationRouteId } from "@/lib/recommendations";
 import {
 	type MediaTrackerState,
 	type TrackableMediaInput,
@@ -155,6 +156,7 @@ export default function MediaTrackerActions({
 	media,
 }: MediaTrackerActionsProps) {
 	const queryClient = useQueryClient();
+	const router = useRouter();
 	const trackerStateRef = useRef(initialState);
 	const [pendingActions, setPendingActions] = useState<
 		Partial<Record<keyof MediaTrackerState, number>>
@@ -281,18 +283,11 @@ export default function MediaTrackerActions({
 				const { [variables.actionKey]: _removed, ...nextState } = currentState;
 				return nextState;
 			});
-			await queryClient.invalidateQueries({
-				predicate: (query) =>
-					Array.isArray(query.queryKey) &&
-					query.queryKey[0] === "browse-media" &&
-					(query.queryKey[1] === media.mediaType ||
-						query.queryKey[1] === "all"),
+			queryClient.removeQueries({
+				queryKey: getRecommendationQueueQueryKey(),
 			});
-			await queryClient.invalidateQueries({
-				queryKey: getRecommendationQueryKey(),
-			});
-			await queryClient.invalidateQueries({
-				queryKey: getRecommendationReviewQueryKey(),
+			await router.invalidate({
+				filter: (match) => isRecommendationRouteId(match.routeId),
 			});
 		},
 	});

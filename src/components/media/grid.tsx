@@ -1,16 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import MediaCard from "@/components/media/card";
 import MediaCardSkeleton from "@/components/media/skeleton";
-import {
-	type BrowseMediaType,
-	type BrowseView,
-	getBrowseHref,
-	type MediaType,
-} from "@/lib/media";
-import { getBrowseQueryKey } from "@/lib/query";
+import { type BrowseView, getBrowseHref, type MediaType } from "@/lib/media";
 import type { Movie, Show } from "@/lib/tmdb";
 
 const SKELETON_KEYS = Array.from(
@@ -19,6 +12,7 @@ const SKELETON_KEYS = Array.from(
 );
 
 type MediaGridItem = Movie | Show;
+
 interface MediaGridResponse<T extends MediaGridItem> {
 	page: number;
 	results: T[];
@@ -26,46 +20,53 @@ interface MediaGridResponse<T extends MediaGridItem> {
 }
 
 interface MediaGridProps<T extends MediaGridItem> {
-	browseType: BrowseMediaType;
-	fetchItems: (
-		searchQuery: string,
-		page: number,
-		view: BrowseView
-	) => Promise<MediaGridResponse<T>>;
+	data: MediaGridResponse<T>;
 	mediaLabel: string;
-	page: number;
 	resolveItemType: (item: T) => MediaType;
 	searchQuery: string;
 	view: BrowseView;
 }
 
-export default function MediaGrid<T extends MediaGridItem>({
-	browseType,
-	fetchItems,
+export function MediaGridLoadingState() {
+	return (
+		<div className="grid gap-0.5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+			{SKELETON_KEYS.map((key) => (
+				<MediaCardSkeleton key={key} />
+			))}
+		</div>
+	);
+}
+
+export function MediaGridErrorState({
+	errorMessage,
 	mediaLabel,
-	page,
+}: {
+	errorMessage: string;
+	mediaLabel: string;
+}) {
+	return (
+		<div className="flex flex-col items-center justify-center py-20">
+			<p className="mb-2 text-lg text-red-500">Error loading {mediaLabel}</p>
+			<p className="text-zinc-500 dark:text-zinc-400">{errorMessage}</p>
+		</div>
+	);
+}
+
+export default function MediaGrid<T extends MediaGridItem>({
+	data,
+	mediaLabel,
 	resolveItemType,
 	searchQuery,
 	view,
 }: MediaGridProps<T>) {
 	const location = useLocation();
 	const navigate = useNavigate();
-	const { data, error, isLoading } = useQuery({
-		queryFn: () => fetchItems(searchQuery, page, view),
-		queryKey: getBrowseQueryKey({
-			page,
-			searchQuery,
-			type: browseType,
-			view,
-		}),
-	});
-	const items = data?.results ?? null;
-	const totalPages = Math.max(1, data?.total_pages ?? 1);
-	const formattedPage = page.toLocaleString();
+	const items = data.results;
+	const totalPages = Math.max(1, data.total_pages);
+	const formattedPage = data.page.toLocaleString();
 	const formattedTotalPages = totalPages.toLocaleString();
-
-	const canGoToPreviousPage = page > 1;
-	const canGoToNextPage = page < totalPages;
+	const canGoToPreviousPage = data.page > 1;
+	const canGoToNextPage = data.page < totalPages;
 
 	function navigateToPage(nextPage: number): void {
 		navigate({
@@ -80,29 +81,7 @@ export default function MediaGrid<T extends MediaGridItem>({
 		});
 	}
 
-	if (isLoading) {
-		return (
-			<div className="grid gap-0.5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-				{SKELETON_KEYS.map((key) => (
-					<MediaCardSkeleton key={key} />
-				))}
-			</div>
-		);
-	}
-
-	if (error) {
-		const errorMessage =
-			error instanceof Error ? error.message : `Failed to fetch ${mediaLabel}`;
-
-		return (
-			<div className="flex flex-col items-center justify-center py-20">
-				<p className="mb-2 text-lg text-red-500">Error loading {mediaLabel}</p>
-				<p className="text-zinc-500 dark:text-zinc-400">{errorMessage}</p>
-			</div>
-		);
-	}
-
-	if (!items?.length) {
+	if (items.length === 0) {
 		return (
 			<div className="flex flex-col items-center justify-center py-20">
 				<p className="text-lg text-zinc-500 dark:text-zinc-400">
@@ -117,13 +96,17 @@ export default function MediaGrid<T extends MediaGridItem>({
 	return (
 		<div className="space-y-6">
 			<div className="grid gap-0.5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-				{items.map((item) => (
-					<MediaCard
-						key={`${resolveItemType(item)}-${item.id}`}
-						media={item}
-						type={resolveItemType(item)}
-					/>
-				))}
+				{items.map((item) => {
+					const itemType = resolveItemType(item);
+
+					return (
+						<MediaCard
+							key={`${itemType}-${item.id}`}
+							media={item}
+							type={itemType}
+						/>
+					);
+				})}
 			</div>
 			{totalPages > 1 ? (
 				<nav
@@ -134,7 +117,7 @@ export default function MediaGrid<T extends MediaGridItem>({
 						className="inline-flex min-h-10 items-center gap-2 rounded-full border border-zinc-200/80 bg-white/90 px-4 py-2 font-medium text-sm text-zinc-950 shadow-[0_12px_40px_rgba(24,24,27,0.12)] backdrop-blur-md transition disabled:cursor-not-allowed disabled:opacity-45 dark:border-zinc-800/80 dark:bg-zinc-950/85 dark:text-zinc-50"
 						disabled={!canGoToPreviousPage}
 						onClick={() => {
-							navigateToPage(page - 1);
+							navigateToPage(data.page - 1);
 						}}
 						type="button"
 					>
@@ -148,7 +131,7 @@ export default function MediaGrid<T extends MediaGridItem>({
 						className="inline-flex min-h-10 items-center gap-2 rounded-full border border-zinc-200/80 bg-white/90 px-4 py-2 font-medium text-sm text-zinc-950 shadow-[0_12px_40px_rgba(24,24,27,0.12)] backdrop-blur-md transition disabled:cursor-not-allowed disabled:opacity-45 dark:border-zinc-800/80 dark:bg-zinc-950/85 dark:text-zinc-50"
 						disabled={!canGoToNextPage}
 						onClick={() => {
-							navigateToPage(page + 1);
+							navigateToPage(data.page + 1);
 						}}
 						type="button"
 					>

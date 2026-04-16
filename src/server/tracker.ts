@@ -2,13 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
-import { parseStoredGenreIds } from "@/lib/genre-ids";
-import type { BrowseMediaType, BrowseView, MediaType } from "@/lib/media";
+import type { BrowseView, MediaType } from "@/lib/media";
 import type {
 	BrowseMediaResponse,
-	Movie,
 	MovieResponse,
-	Show,
 	ShowResponse,
 } from "@/lib/tmdb";
 import { mediaItem, userMedia } from "@/schema";
@@ -19,6 +16,11 @@ import {
 	type TrackableMediaInput,
 	upsertMediaItem,
 } from "@/server/media-items";
+import {
+	mapTrackedBrowseMedia,
+	mapTrackedMovie,
+	mapTrackedShow,
+} from "@/server/tracked-browse-media";
 
 const TRACKED_PAGE_SIZE = 20;
 
@@ -33,18 +35,26 @@ interface UpdateMediaTrackerStateInput {
 	state: MediaTrackerState;
 }
 
-interface TrackedMediaRow {
-	backdropPath: string | null;
-	genreIds: string;
-	mediaId: number;
-	mediaType: MediaType;
-	overview: string;
-	posterPath: string | null;
-	releaseDate: string;
-	title: string;
-}
-
 type TrackedCollection = Exclude<BrowseView, "discover">;
+type TrackedMediaRequest =
+	| {
+			page: number;
+			query: string;
+			type: "all";
+			view: TrackedCollection;
+	  }
+	| {
+			page: number;
+			query: string;
+			type: "movies";
+			view: TrackedCollection;
+	  }
+	| {
+			page: number;
+			query: string;
+			type: "tv";
+			view: TrackedCollection;
+	  };
 
 function getTrackedCollectionColumn(
 	collection: TrackedCollection
@@ -71,60 +81,6 @@ function getEmptyTrackerState(): MediaTrackerState {
 
 function requireTrackerUserId(): Promise<string> {
 	return requireAuthenticatedUserId();
-}
-
-function mapTrackedMovie(row: TrackedMediaRow): Movie {
-	return {
-		adult: false,
-		backdrop_path: row.backdropPath,
-		genre_ids: parseStoredGenreIds(row.genreIds),
-		id: row.mediaId,
-		original_language: "en",
-		original_title: row.title,
-		overview: row.overview,
-		popularity: 0,
-		poster_path: row.posterPath,
-		release_date: row.releaseDate,
-		title: row.title,
-		video: false,
-		vote_average: 0,
-		vote_count: 0,
-	};
-}
-
-function mapTrackedShow(row: TrackedMediaRow): Show {
-	return {
-		adult: false,
-		backdrop_path: row.backdropPath,
-		first_air_date: row.releaseDate,
-		genre_ids: parseStoredGenreIds(row.genreIds),
-		id: row.mediaId,
-		name: row.title,
-		origin_country: [],
-		original_language: "en",
-		original_name: row.title,
-		overview: row.overview,
-		popularity: 0,
-		poster_path: row.posterPath,
-		vote_average: 0,
-		vote_count: 0,
-	};
-}
-
-function mapTrackedBrowseMedia(
-	row: TrackedMediaRow
-): BrowseMediaResponse["results"][number] {
-	if (row.mediaType === "movies") {
-		return {
-			...mapTrackedMovie(row),
-			mediaType: "movies",
-		};
-	}
-
-	return {
-		...mapTrackedShow(row),
-		mediaType: "tv",
-	};
 }
 
 async function getMediaTrackerState(input: {
@@ -210,12 +166,9 @@ async function updateMediaTrackerState(
 	return nextState;
 }
 
-async function getTrackedMedia(input: {
-	page: number;
-	query: string;
-	type: BrowseMediaType;
-	view: TrackedCollection;
-}): Promise<MovieResponse | ShowResponse | BrowseMediaResponse> {
+async function getTrackedMediaImpl(
+	input: TrackedMediaRequest
+): Promise<MovieResponse | ShowResponse | BrowseMediaResponse> {
 	const userId = await requireTrackerUserId();
 	const page = Number.isInteger(input.page) && input.page > 0 ? input.page : 1;
 	const trimmedQuery = input.query.trim().toLowerCase();
@@ -289,15 +242,25 @@ export const updateMediaTrackerStateFn = createServerFn({ method: "POST" })
 	.inputValidator((data: UpdateMediaTrackerStateInput) => data)
 	.handler(async ({ data }) => updateMediaTrackerState(data));
 
-export const getTrackedMediaFn = createServerFn({ method: "GET" })
-	.inputValidator(
-		(data: {
-			page: number;
-			query: string;
-			type: BrowseMediaType;
-			view: TrackedCollection;
-		}) => data
-	)
-	.handler(async ({ data }) => getTrackedMedia(data));
+const getTrackedMediaServerFn = createServerFn({ method: "GET" })
+	.inputValidator((data: TrackedMediaRequest) => data)
+	.handler(async ({ data }) => getTrackedMediaImpl(data));
+
+export function getTrackedMediaFn(input: {
+	data: Extract<TrackedMediaRequest, { type: "all" }>;
+}): Promise<BrowseMediaResponse>;
+export function getTrackedMediaFn(input: {
+	data: Extract<TrackedMediaRequest, { type: "movies" }>;
+}): Promise<MovieResponse>;
+export function getTrackedMediaFn(input: {
+	data: Extract<TrackedMediaRequest, { type: "tv" }>;
+}): Promise<ShowResponse>;
+export function getTrackedMediaFn(input: {
+	data: TrackedMediaRequest;
+}): Promise<MovieResponse | ShowResponse | BrowseMediaResponse> {
+	return getTrackedMediaServerFn(input) as Promise<
+		MovieResponse | ShowResponse | BrowseMediaResponse
+	>;
+}
 
 export type { TrackableMediaInput } from "@/server/media-items";

@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
 	ArrowLeft,
@@ -12,11 +11,10 @@ import { useState } from "react";
 import MediaCard from "@/components/media/card";
 import MediaCardSkeleton from "@/components/media/skeleton";
 import { DEFAULT_BROWSE_SEARCH } from "@/lib/media";
-import { getRecommendationReviewQueryKey } from "@/lib/query";
 import type { BrowseMediaItem } from "@/lib/tmdb";
-import { getRecommendationReviewFn } from "@/server/recommendations";
+import type { RecommendationReviewResult } from "@/server/recommendations";
 
-function getErrorMessage(error: unknown): string {
+export function getRecommendationsAllErrorMessage(error: unknown): string {
 	return error instanceof Error
 		? error.message
 		: "Something went wrong while loading recommendation history.";
@@ -51,7 +49,7 @@ function RecommendationsAllHeading() {
 	return (
 		<section className="mt-6 border-zinc-200/70 border-b pb-6 dark:border-zinc-800/70">
 			<h1 className="text-balance font-medium text-3xl text-zinc-950 tracking-tight sm:text-4xl dark:text-zinc-50">
-				All recommendations
+				Recommendations
 			</h1>
 			<p className="mt-3 max-w-[48ch] text-pretty text-base/7 text-zinc-600 dark:text-zinc-300">
 				These are the titles we've recommended to you.
@@ -141,7 +139,7 @@ function RecommendationGrid<TItem extends { media: BrowseMediaItem }>({
 	);
 }
 
-function RecommendationsAllLoadingState() {
+export function RecommendationsAllLoadingState() {
 	const skeletonKeys = Array.from(
 		{ length: 10 },
 		(_, index) => `recommendation-review-skeleton-${index}`
@@ -170,12 +168,12 @@ function RecommendationsAllLoadingState() {
 	);
 }
 
-function RecommendationsAllErrorState({
+export function RecommendationsAllErrorState({
 	errorMessage,
 	onRetry,
 }: {
 	errorMessage: string;
-	onRetry: () => void;
+	onRetry: () => Promise<void> | void;
 }) {
 	return (
 		<RecommendationsAllShell>
@@ -230,35 +228,18 @@ function RecommendationsAllEmptyState() {
 	);
 }
 
-export default function RecommendationsAllPage() {
+export default function RecommendationsAllPage({
+	data,
+}: {
+	data: RecommendationReviewResult;
+}) {
 	const [isHiddenOpen, setIsHiddenOpen] = useState(false);
-	const { data, error, isLoading, refetch } = useQuery({
-		queryFn: () => getRecommendationReviewFn(),
-		queryKey: getRecommendationReviewQueryKey(),
-	});
 	const hasAnyRecommendations =
-		(data?.newRecommendations.length ?? 0) > 0 ||
-		(data?.interested.length ?? 0) > 0 ||
-		(data?.hidden.length ?? 0) > 0;
+		data.newRecommendations.length > 0 ||
+		data.interested.length > 0 ||
+		data.hidden.length > 0;
 
-	if (isLoading) {
-		return <RecommendationsAllLoadingState />;
-	}
-
-	if (error) {
-		return (
-			<RecommendationsAllErrorState
-				errorMessage={getErrorMessage(error)}
-				onRetry={() => {
-					refetch().catch(() => {
-						return undefined;
-					});
-				}}
-			/>
-		);
-	}
-
-	if (!(data && hasAnyRecommendations)) {
+	if (!hasAnyRecommendations) {
 		return <RecommendationsAllEmptyState />;
 	}
 

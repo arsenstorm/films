@@ -12,7 +12,7 @@ import {
 } from "@/lib/media";
 import type { MediaTrackerState, TrackableMediaInput } from "@/server/tracker";
 
-interface MediaDetailsFact {
+export interface MediaDetailsFact {
 	label: string;
 	value: string;
 }
@@ -22,7 +22,7 @@ const frostedSurfaceClassName =
 const posterFrameClassName =
 	"relative overflow-hidden rounded-4xl bg-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_28px_80px_rgba(0,0,0,0.28)]";
 
-interface MediaDetailsPageProps {
+export interface MediaDetailsPageProps {
 	aboutLabel: string;
 	backdropUrl: string | null;
 	backLabel: string;

@@ -7,14 +7,27 @@ import {
 	DEFAULT_BROWSE_SEARCH,
 	parseBrowseSearch,
 	parseMediaType,
+	parsePositiveId,
 } from "@/lib/media";
-import type { MovieDetails, ShowDetails } from "@/lib/tmdb";
+import { getMediaTitle } from "@/lib/media-adapters";
 import { requireAuthenticatedAccess } from "@/server/auth";
-import { getMediaByIdFn } from "@/server/tmdb";
+import { getMovieByIdFn, getShowByIdFn } from "@/server/tmdb";
 import {
 	getMediaTrackerStateFn,
 	type MediaTrackerState,
 } from "@/server/tracker";
+
+type MediaDetailsLoaderData =
+	| {
+			mediaItem: Awaited<ReturnType<typeof getMovieByIdFn>>;
+			mediaType: "movies";
+			trackerState: MediaTrackerState;
+	  }
+	| {
+			mediaItem: Awaited<ReturnType<typeof getShowByIdFn>>;
+			mediaType: "tv";
+			trackerState: MediaTrackerState;
+	  };
 
 export const Route = createFileRoute("/$type/$id/")({
 	beforeLoad: async ({ location }) => {
@@ -22,16 +35,51 @@ export const Route = createFileRoute("/$type/$id/")({
 			getSafeRedirectPath(`${location.pathname}${location.searchStr}`)
 		);
 	},
+	loader: async ({ params }): Promise<MediaDetailsLoaderData> => {
+		const mediaType = parseMediaType(params.type);
+		const mediaId = parsePositiveId(params.id, "media");
+		const trackerStatePromise = getMediaTrackerStateFn({
+			data: {
+				mediaId,
+				mediaType,
+			},
+		});
+
+		if (mediaType === "movies") {
+			const [mediaItem, trackerState] = await Promise.all([
+				getMovieByIdFn({
+					data: {
+						id: mediaId,
+					},
+				}),
+				trackerStatePromise,
+			]);
+
+			return {
+				mediaItem,
+				mediaType,
+				trackerState,
+			};
+		}
+
+		const [mediaItem, trackerState] = await Promise.all([
+			getShowByIdFn({
+				data: {
+					id: mediaId,
+				},
+			}),
+			trackerStatePromise,
+		]);
+
+		return {
+			mediaItem,
+			mediaType,
+			trackerState,
+		};
+	},
 	component: MediaDetailsRoute,
 	head: ({ loaderData }) => {
-		const data = loaderData as
-			| {
-					mediaItem: MovieDetails | ShowDetails;
-					trackerState: MediaTrackerState;
-			  }
-			| undefined;
-
-		if (!data) {
+		if (!loaderData) {
 			return {
 				meta: [
 					{
@@ -41,38 +89,12 @@ export const Route = createFileRoute("/$type/$id/")({
 			};
 		}
 
-		const title =
-			"title" in data.mediaItem ? data.mediaItem.title : data.mediaItem.name;
-
 		return {
 			meta: [
 				{
-					title: `${title} | Films`,
+					title: `${getMediaTitle(loaderData.mediaItem)} | Films`,
 				},
 			],
-		};
-	},
-	loader: async ({ params }) => {
-		const mediaType = parseMediaType(params.type);
-		const mediaId = Number.parseInt(params.id, 10);
-		const [mediaItem, trackerState] = await Promise.all([
-			getMediaByIdFn({
-				data: {
-					id: mediaId,
-					type: mediaType,
-				},
-			}),
-			getMediaTrackerStateFn({
-				data: {
-					mediaId,
-					mediaType,
-				},
-			}),
-		]);
-
-		return {
-			mediaItem,
-			trackerState,
 		};
 	},
 	search: {
@@ -82,24 +104,21 @@ export const Route = createFileRoute("/$type/$id/")({
 });
 
 function MediaDetailsRoute() {
-	const { type } = Route.useParams();
 	const loaderData = Route.useLoaderData();
 
 	if (!loaderData) {
 		return null;
 	}
 
-	const { mediaItem, trackerState } = loaderData;
-
-	return type === "movies" ? (
+	return loaderData.mediaType === "movies" ? (
 		<MovieDetailsPage
-			movie={mediaItem as unknown as MovieDetails}
-			trackerState={trackerState}
+			movie={loaderData.mediaItem}
+			trackerState={loaderData.trackerState}
 		/>
 	) : (
 		<ShowDetailsPage
-			show={mediaItem as unknown as ShowDetails}
-			trackerState={trackerState}
+			show={loaderData.mediaItem}
+			trackerState={loaderData.trackerState}
 		/>
 	);
 }

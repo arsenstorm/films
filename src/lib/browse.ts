@@ -13,92 +13,156 @@ import {
 } from "@/server/tmdb";
 import { getTrackedMediaFn } from "@/server/tracker";
 
-export function fetchMovies(
-	searchQuery: string,
-	page: number,
-	view: BrowseView
-): Promise<MovieResponse> {
-	if (view !== "discover") {
-		return getTrackedMediaFn({
-			data: {
-				page,
-				query: searchQuery,
-				type: "movies",
-				view,
-			},
-		}) as Promise<MovieResponse>;
-	}
-
-	if (searchQuery) {
-		return searchMoviesFn({
-			data: {
-				page,
-				query: searchQuery,
-			},
-		});
-	}
-
-	return getMoviesFn({
-		data: {
-			page,
-			type: "popular",
-		},
-	});
+export interface BrowsePageInput {
+	page: number;
+	query: string;
+	type: BrowseMediaType;
+	view: BrowseView;
 }
 
-export function fetchShows(
-	searchQuery: string,
-	page: number,
+export type BrowsePageResult =
+	| {
+			browsePage: BrowseMediaResponse;
+			browseType: "all";
+			view: BrowseView;
+	  }
+	| {
+			browsePage: MovieResponse;
+			browseType: "movies";
+			view: BrowseView;
+	  }
+	| {
+			browsePage: ShowResponse;
+			browseType: "tv";
+			view: BrowseView;
+	  };
+
+export function getBrowseMediaLabel(
+	type: BrowseMediaType,
 	view: BrowseView
-): Promise<ShowResponse> {
-	if (view !== "discover") {
-		return getTrackedMediaFn({
-			data: {
-				page,
-				query: searchQuery,
-				type: "tv",
-				view,
-			},
-		}) as Promise<ShowResponse>;
+): string {
+	if (type === "all") {
+		return view === "discover" ? "titles" : `${view} titles`;
 	}
 
-	if (searchQuery) {
-		return searchTvShowsFn({
-			data: {
-				page,
-				query: searchQuery,
-			},
-		});
+	if (type === "movies") {
+		return view === "discover" ? "movies" : `${view} movies`;
 	}
 
-	return getShowsFn({
-		data: {
-			page,
-			type: "popular",
-		},
-	});
+	return view === "discover" ? "shows" : `${view} shows`;
 }
 
-export function fetchAllMedia(
-	searchQuery: string,
-	page: number,
-	view: BrowseView
-): Promise<BrowseMediaResponse> {
-	if (view !== "discover") {
-		return getTrackedMediaFn({
-			data: {
-				page,
-				query: searchQuery,
-				type: "all" satisfies BrowseMediaType,
-				view,
-			},
-		}) as Promise<BrowseMediaResponse>;
+export async function loadBrowsePage(
+	input: BrowsePageInput
+): Promise<BrowsePageResult> {
+	const page = Number.isInteger(input.page) && input.page > 0 ? input.page : 1;
+	const query = input.query.trim();
+
+	if (input.type === "all") {
+		if (input.view !== "discover") {
+			return {
+				browsePage: await getTrackedMediaFn({
+					data: {
+						page,
+						query,
+						type: "all",
+						view: input.view,
+					},
+				}),
+				browseType: "all",
+				view: input.view,
+			};
+		}
+
+		return {
+			browsePage: await getAllMediaFn({
+				data: {
+					page,
+					query,
+				},
+			}),
+			browseType: "all",
+			view: input.view,
+		};
 	}
 
-	return getAllMediaFn({
-		data: {
-			page,
-			query: searchQuery,
-		},
-	});
+	if (input.type === "movies") {
+		if (input.view !== "discover") {
+			return {
+				browsePage: await getTrackedMediaFn({
+					data: {
+						page,
+						query,
+						type: "movies",
+						view: input.view,
+					},
+				}),
+				browseType: "movies",
+				view: input.view,
+			};
+		}
+
+		if (query) {
+			return {
+				browsePage: await searchMoviesFn({
+					data: {
+						page,
+						query,
+					},
+				}),
+				browseType: "movies",
+				view: input.view,
+			};
+		}
+
+		return {
+			browsePage: await getMoviesFn({
+				data: {
+					page,
+					type: "popular",
+				},
+			}),
+			browseType: "movies",
+			view: input.view,
+		};
+	}
+
+	if (input.view !== "discover") {
+		return {
+			browsePage: await getTrackedMediaFn({
+				data: {
+					page,
+					query,
+					type: "tv",
+					view: input.view,
+				},
+			}),
+			browseType: "tv",
+			view: input.view,
+		};
+	}
+
+	if (query) {
+		return {
+			browsePage: await searchTvShowsFn({
+				data: {
+					page,
+					query,
+				},
+			}),
+			browseType: "tv",
+			view: input.view,
+		};
+	}
+
+	return {
+		browsePage: await getShowsFn({
+			data: {
+				page,
+				type: "popular",
+			},
+		}),
+		browseType: "tv",
+		view: input.view,
+	};
 }

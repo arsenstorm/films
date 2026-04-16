@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { type CSSProperties, useMemo } from "react";
 
 import { getGenreNames, getTmdbImageUrl, type Movie } from "@/lib/tmdb";
 
@@ -11,6 +11,15 @@ interface PickedMovie {
 	movie: Movie;
 	sourceIndex: number;
 }
+
+type MovieMarqueeCardStyle = CSSProperties & {
+	"--films-marquee-card-delay": string;
+	"--films-marquee-card-duration": string;
+};
+
+type MovieMarqueeTrackStyle = CSSProperties & {
+	"--films-marquee-duration": string;
+};
 
 const CARD_SIZE = 256;
 const ROW_PITCH = CARD_SIZE + 12;
@@ -66,7 +75,7 @@ function getCardAnimationStyle(
 	rowIndex: number,
 	itemIndex: number,
 	cloneIndex: number
-): React.CSSProperties {
+): MovieMarqueeCardStyle {
 	const baseSeed =
 		movieId * 31 + rowIndex * 101 + itemIndex * 53 + cloneIndex * 211;
 	const normalizedColumn =
@@ -143,6 +152,11 @@ export default function MovieMarquee({ movies }: MovieMarqueeProps) {
 			),
 		[movies]
 	);
+	const trackStyles = ROW_CONFIG.map(
+		(config): MovieMarqueeTrackStyle => ({
+			"--films-marquee-duration": `${config.duration}s`,
+		})
+	);
 
 	return (
 		<div
@@ -156,14 +170,7 @@ export default function MovieMarquee({ movies }: MovieMarqueeProps) {
 						key={`marquee-row-${ROW_CONFIG[rowIndex].duration}`}
 						style={{ top: `calc(50% + ${ROW_CONFIG[rowIndex].offset}px)` }}
 					>
-						<div
-							className="films-marquee-track"
-							style={
-								{
-									"--films-marquee-duration": `${ROW_CONFIG[rowIndex].duration}s`,
-								} as React.CSSProperties
-							}
-						>
+						<div className="films-marquee-track" style={trackStyles[rowIndex]}>
 							<div className="films-marquee-row">
 								{row.map((pickedMovie, itemIndex) => (
 									<MovieTickerCard
