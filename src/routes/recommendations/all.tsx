@@ -6,9 +6,11 @@ import {
 
 import RecommendationsAllPage, {
 	getRecommendationsAllErrorMessage,
+} from "@/components/recommendations/all-page";
+import {
 	RecommendationsAllErrorState,
 	RecommendationsAllLoadingState,
-} from "@/components/recommendations/all-page";
+} from "@/components/recommendations/all-page-ui";
 import { getRecommendationReviewFn } from "@/server/recommendations";
 
 export const Route = createFileRoute("/recommendations/all")({

@@ -4,10 +4,11 @@ import {
 	useRouter,
 } from "@tanstack/react-router";
 
-import RecommendationsPage, {
+import RecommendationsPage from "@/components/recommendations/page";
+import {
 	RecommendationsErrorState,
 	RecommendationsLoadingState,
-} from "@/components/recommendations/page";
+} from "@/components/recommendations/page-ui";
 import { getRecommendationsErrorMessage } from "@/lib/recommendations";
 import { getRecommendationFn } from "@/server/recommendations";
 
