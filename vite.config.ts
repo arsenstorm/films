@@ -8,10 +8,16 @@ import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
+const shouldUseRemoteBindings =
+	process.env.CLOUDFLARE_REMOTE_BINDINGS !== "false";
+
 const config = defineConfig({
 	plugins: [
 		devtools(),
-		cloudflare({ viteEnvironment: { name: "ssr" } }),
+		cloudflare({
+			remoteBindings: shouldUseRemoteBindings,
+			viteEnvironment: { name: "ssr" },
+		}),
 		tsconfigPaths({ projects: ["./tsconfig.json"] }),
 		tailwindcss(),
 		tanstackStart(),
