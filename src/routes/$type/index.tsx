@@ -102,13 +102,10 @@ export const Route = createFileRoute("/$type/")({
 });
 
 function MediaBrowseLayout({ children }: { children: React.ReactNode }) {
-	const routeContext = Route.useRouteContext();
-	const isSpecialUser = routeContext?.isSpecialUser ?? false;
-
 	return (
 		<main className="min-h-screen bg-zinc-100 p-6 pt-2 dark:bg-zinc-950">
 			<header className="mb-2 flex h-16 items-center">
-				<SearchBar isSpecialUser={isSpecialUser} />
+				<SearchBar />
 			</header>
 			{children}
 		</main>

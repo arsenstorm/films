@@ -56,11 +56,7 @@ function getBrowsePlaceholder(type: BrowseMediaType): string {
 	return type === "tv" ? "Search TV shows..." : "Search movies...";
 }
 
-interface SearchBarProps {
-	isSpecialUser?: boolean;
-}
-
-export default function SearchBar({ isSpecialUser = false }: SearchBarProps) {
+export default function SearchBar() {
 	const location = useLocation();
 	const navigate = useNavigate();
 	const { isPending, setTheme, theme } = useTheme();
@@ -241,14 +237,12 @@ export default function SearchBar({ isSpecialUser = false }: SearchBarProps) {
 				</div>
 
 				<div className="flex min-w-0 flex-1 items-center justify-end gap-3">
-					{isSpecialUser ? (
-						<Link
-							className="inline-flex min-h-9 items-center rounded-full px-3 py-2 font-medium text-xs text-zinc-500 transition-colors hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
-							to="/recommendations/all"
-						>
-							Recommendations
-						</Link>
-					) : null}
+					<Link
+						className="inline-flex min-h-9 items-center rounded-full px-3 py-2 font-medium text-xs text-zinc-500 transition-colors hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
+						to="/recommendations/all"
+					>
+						Recommendations
+					</Link>
 					<div className="inline-flex items-center gap-1 rounded-full border border-zinc-200/80 bg-white/85 p-1 shadow-[0_12px_40px_rgba(24,24,27,0.12)] backdrop-blur-md dark:border-zinc-800/80 dark:bg-zinc-950/85">
 						{browseViewOptions.map((option) => {
 							const isActive = currentSearch.view === option.value;
@@ -387,24 +381,22 @@ export default function SearchBar({ isSpecialUser = false }: SearchBarProps) {
 							</div>
 						</div>
 
-						{isSpecialUser ? (
-							<div className="space-y-2">
-								<p className="px-1 font-medium text-xs text-zinc-500 uppercase tracking-[0.16em] dark:text-zinc-400">
-									Extras
-								</p>
-								<div className="flex flex-wrap gap-3">
-									<Link
-										className="inline-flex min-h-11 items-center rounded-full border border-zinc-200/80 bg-white/85 px-4 py-3 font-medium text-sm text-zinc-600 shadow-[0_12px_40px_rgba(24,24,27,0.12)] backdrop-blur-md transition-colors hover:text-zinc-950 dark:border-zinc-800/80 dark:bg-zinc-950/85 dark:text-zinc-300 dark:hover:text-zinc-100"
-										onClick={() => {
-											setIsMobileSidebarOpen(false);
-										}}
-										to="/recommendations/all"
-									>
-										Recommendations
-									</Link>
-								</div>
+						<div className="space-y-2">
+							<p className="px-1 font-medium text-xs text-zinc-500 uppercase tracking-[0.16em] dark:text-zinc-400">
+								Extras
+							</p>
+							<div className="flex flex-wrap gap-3">
+								<Link
+									className="inline-flex min-h-11 items-center rounded-full border border-zinc-200/80 bg-white/85 px-4 py-3 font-medium text-sm text-zinc-600 shadow-[0_12px_40px_rgba(24,24,27,0.12)] backdrop-blur-md transition-colors hover:text-zinc-950 dark:border-zinc-800/80 dark:bg-zinc-950/85 dark:text-zinc-300 dark:hover:text-zinc-100"
+									onClick={() => {
+										setIsMobileSidebarOpen(false);
+									}}
+									to="/recommendations/all"
+								>
+									Recommendations
+								</Link>
 							</div>
-						) : null}
+						</div>
 
 						<div className="mt-auto flex items-center justify-between rounded-[1.25rem] border border-zinc-200/80 bg-white/85 px-3 py-2 shadow-[0_12px_40px_rgba(24,24,27,0.12)] backdrop-blur-md dark:border-zinc-800/80 dark:bg-zinc-950/85">
 							<p className="font-medium text-sm text-zinc-600 dark:text-zinc-300">
