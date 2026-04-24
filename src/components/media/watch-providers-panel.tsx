@@ -8,8 +8,29 @@ import { getTmdbImageUrl, type WatchProviderResponse } from "@/lib/tmdb";
 import { getMediaWatchProvidersFn } from "@/server/tmdb";
 
 interface WatchProvidersPanelProps {
+	episodeNumber?: number;
 	id: number;
+	seasonNumber?: number;
 	type: MediaType;
+}
+
+function rewriteWatchLinkForEpisode(
+	link: string,
+	_seasonNumber: number,
+	_episodeNumber: number
+): string {
+	try {
+		const url = new URL(link);
+		const segments = url.pathname.split("/").filter(Boolean);
+		const watchIndex = segments.lastIndexOf("watch");
+		const base = watchIndex === -1 ? segments : segments.slice(0, watchIndex);
+
+		url.pathname = `/${[...base, "watch"].join("/")}`;
+
+		return url.toString();
+	} catch {
+		return link;
+	}
 }
 
 interface ProviderSummary {
@@ -175,9 +196,13 @@ function getVisibleAvailabilityModes(
 }
 
 export default function WatchProvidersPanel({
+	episodeNumber,
 	id,
+	seasonNumber,
 	type,
 }: WatchProvidersPanelProps) {
+	const shouldRewriteLinks =
+		type === "tv" && seasonNumber !== undefined && episodeNumber !== undefined;
 	const [selectedProviderId, setSelectedProviderId] = useState<number | null>(
 		null
 	);
@@ -407,7 +432,15 @@ export default function WatchProvidersPanel({
 								) : null}
 								<a
 									className="inline-flex size-10 items-center justify-center rounded-full text-zinc-500 transition-colors hover:text-zinc-50"
-									href={country.link}
+									href={
+										shouldRewriteLinks
+											? rewriteWatchLinkForEpisode(
+													country.link,
+													seasonNumber,
+													episodeNumber
+												)
+											: country.link
+									}
 									rel="noreferrer"
 									target="_blank"
 								>

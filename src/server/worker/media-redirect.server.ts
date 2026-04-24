@@ -1,6 +1,6 @@
 import { getSafeRedirectPath } from "@/lib/auth";
 import { parseMediaType } from "@/lib/media";
-import { getTmdbMediaPageUrl } from "@/lib/tmdb";
+import { getTmdbEpisodePageUrl, getTmdbMediaPageUrl } from "@/lib/tmdb";
 import { auth } from "@/server/auth.server";
 
 function buildSignInHref(url: URL): string {
@@ -8,6 +8,16 @@ function buildSignInHref(url: URL): string {
 	const signInUrl = new URL("/sign-in", url.origin);
 	signInUrl.searchParams.set("next", nextPath);
 	return signInUrl.toString();
+}
+
+function parsePositiveIntParam(value: string | null): number | null {
+	if (!value) {
+		return null;
+	}
+
+	const parsed = Number.parseInt(value, 10);
+
+	return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 interface HandleMediaRedirectRequestInput {
@@ -35,6 +45,20 @@ export async function handleMediaRedirectRequest({
 
 	if (!session) {
 		return Response.redirect(buildSignInHref(url), 302);
+	}
+
+	if (mediaType === "tv") {
+		const seasonNumber = parsePositiveIntParam(url.searchParams.get("season"));
+		const episodeNumber = parsePositiveIntParam(
+			url.searchParams.get("episode")
+		);
+
+		if (seasonNumber !== null && episodeNumber !== null) {
+			return Response.redirect(
+				getTmdbEpisodePageUrl(mediaId, seasonNumber, episodeNumber),
+				302
+			);
+		}
 	}
 
 	return Response.redirect(getTmdbMediaPageUrl(mediaType, mediaId), 302);

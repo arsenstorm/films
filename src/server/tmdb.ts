@@ -7,10 +7,12 @@ import {
 import type {
 	BrowseMediaItem,
 	BrowseMediaResponse,
+	EpisodeDetails,
 	Movie,
 	MovieDetails,
 	MovieParams,
 	MovieResponse,
+	SeasonDetails,
 	Show,
 	ShowDetails,
 	ShowParams,
@@ -210,6 +212,27 @@ export function getShowById(id: number): Promise<ShowDetails> {
 	return fetchFromTmdb<ShowDetails>(`tv/${id}`, new URLSearchParams());
 }
 
+export function getTvSeason(
+	showId: number,
+	seasonNumber: number
+): Promise<SeasonDetails> {
+	return fetchFromTmdb<SeasonDetails>(
+		`tv/${showId}/season/${seasonNumber}`,
+		new URLSearchParams()
+	);
+}
+
+export function getTvEpisode(
+	showId: number,
+	seasonNumber: number,
+	episodeNumber: number
+): Promise<EpisodeDetails> {
+	return fetchFromTmdb<EpisodeDetails>(
+		`tv/${showId}/season/${seasonNumber}/episode/${episodeNumber}`,
+		new URLSearchParams()
+	);
+}
+
 export function getMediaById(
 	type: MediaType,
 	id: number
@@ -291,6 +314,19 @@ export const getMovieByIdFn = createServerFn({ method: "GET" })
 export const getShowByIdFn = createServerFn({ method: "GET" })
 	.inputValidator((data: { id: number }) => data)
 	.handler(async ({ data }) => getShowById(data.id));
+
+export const getTvSeasonFn = createServerFn({ method: "GET" })
+	.inputValidator((data: { seasonNumber: number; showId: number }) => data)
+	.handler(async ({ data }) => getTvSeason(data.showId, data.seasonNumber));
+
+export const getTvEpisodeFn = createServerFn({ method: "GET" })
+	.inputValidator(
+		(data: { episodeNumber: number; seasonNumber: number; showId: number }) =>
+			data
+	)
+	.handler(async ({ data }) =>
+		getTvEpisode(data.showId, data.seasonNumber, data.episodeNumber)
+	);
 
 export const getMediaByIdFn = createServerFn({ method: "GET" })
 	.inputValidator((data: { id: number; type: MediaType }) => data)

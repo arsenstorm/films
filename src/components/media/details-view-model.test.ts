@@ -70,6 +70,7 @@ describe("details view model", () => {
 				overview: "Show overview",
 				popularity: 22,
 				poster_path: "/show-poster.jpg",
+				seasons: [],
 				status: "Returning Series",
 				tagline: "Tagline",
 				vote_average: 8.4,

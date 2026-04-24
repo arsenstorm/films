@@ -121,6 +121,7 @@ describe("media adapters", () => {
 			overview: "Show overview",
 			popularity: 22,
 			poster_path: "/show-poster.jpg",
+			seasons: [],
 			status: "Returning Series",
 			tagline: "",
 			vote_average: 8.4,

@@ -125,6 +125,17 @@ export interface MovieDetails {
 	vote_count: number;
 }
 
+export interface ShowSeasonSummary {
+	air_date: string | null;
+	episode_count: number;
+	id: number;
+	name: string;
+	overview: string;
+	poster_path: string | null;
+	season_number: number;
+	vote_average?: number;
+}
+
 export interface ShowDetails {
 	backdrop_path: string | null;
 	episode_run_time: number[];
@@ -139,10 +150,45 @@ export interface ShowDetails {
 	overview: string;
 	popularity: number;
 	poster_path: string | null;
+	seasons: ShowSeasonSummary[];
 	status: string;
 	tagline: string;
 	vote_average: number;
 	vote_count: number;
+}
+
+export interface Episode {
+	air_date: string | null;
+	episode_number: number;
+	id: number;
+	name: string;
+	overview: string;
+	runtime: number | null;
+	season_number: number;
+	still_path: string | null;
+	vote_average: number;
+	vote_count: number;
+}
+
+export interface SeasonDetails {
+	air_date: string | null;
+	episodes: Episode[];
+	id: number;
+	name: string;
+	overview: string;
+	poster_path: string | null;
+	season_number: number;
+}
+
+export interface EpisodeGuestStar {
+	character: string;
+	id: number;
+	name: string;
+	profile_path: string | null;
+}
+
+export interface EpisodeDetails extends Episode {
+	guest_stars?: EpisodeGuestStar[];
 }
 
 export interface WatchProvider {
@@ -218,6 +264,14 @@ export function getTmdbMediaPageUrl(type: MediaType, id: number): string {
 	const mediaPath = type === "movies" ? "movie" : "tv";
 
 	return `${TMDB_MEDIA_BASE_URL}/${mediaPath}/${id}`;
+}
+
+export function getTmdbEpisodePageUrl(
+	showId: number,
+	seasonNumber: number,
+	episodeNumber: number
+): string {
+	return `${TMDB_MEDIA_BASE_URL}/tv/${showId}/season/${seasonNumber}/episode/${episodeNumber}`;
 }
 
 export function getReleaseYear(date: string | null | undefined): string {

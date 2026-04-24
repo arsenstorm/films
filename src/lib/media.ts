@@ -36,6 +36,36 @@ const VALID_BROWSE_VIEWS = new Set<BrowseView>([
 const BROWSE_PATH_PATTERN = /^\/(all|movies|tv)\/?$/;
 const DETAILS_PATH_PATTERN = /^\/(movies|tv)\/\d+\/?$/;
 
+export interface MediaDetailsSearch {
+	episode?: number;
+	page?: number;
+	q?: string;
+	season?: number;
+	view?: BrowseView;
+}
+
+function parsePositiveIntSearchParam(value: unknown): number | undefined {
+	let parsed = Number.NaN;
+
+	if (typeof value === "number") {
+		parsed = value;
+	} else if (typeof value === "string") {
+		parsed = Number(value);
+	}
+
+	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+export function parseMediaDetailsSearch(
+	search: Record<string, unknown>
+): MediaDetailsSearch {
+	return {
+		...parseBrowseSearch(search),
+		episode: parsePositiveIntSearchParam(search.episode),
+		season: parsePositiveIntSearchParam(search.season),
+	};
+}
+
 export function parseBrowseSearch(
 	search: Record<string, unknown>
 ): BrowseSearch {

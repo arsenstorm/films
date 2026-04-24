@@ -1,7 +1,6 @@
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation } from "@tanstack/react-router";
 
 import { MediaDetailsPageLayout } from "@/components/media/details-layout";
-import { getSafeRedirectPath } from "@/lib/auth";
 import {
 	getBrowseHref,
 	getMediaViewTransitionName,
@@ -23,11 +22,13 @@ export interface MediaDetailsPageProps {
 	heroPills: string[];
 	homepage: string | null;
 	id: number;
+	onWatchNow?: () => void;
 	overview: string;
 	posterLabel: string;
 	posterUrl: string | null;
 	quickTake: string;
 	releaseYear: string;
+	showWatchProviders?: boolean;
 	statCards: MediaDetailsFact[];
 	tagline: string;
 	title: string;
@@ -39,13 +40,13 @@ export interface MediaDetailsPageProps {
 }
 
 export default function MediaDetailsPage({
-	backLabel,
 	backdropUrl,
-	heroPills,
 	homepage,
 	id,
+	onWatchNow,
 	overview,
 	posterUrl,
+	showWatchProviders,
 	tagline,
 	title,
 	trackerMedia,
@@ -53,42 +54,13 @@ export default function MediaDetailsPage({
 	type,
 }: MediaDetailsPageProps) {
 	const location = useLocation();
-	const navigate = useNavigate();
-	let rawReturnToHref: unknown;
-
-	if (location.state && typeof location.state === "object") {
-		rawReturnToHref =
-			"returnToHref" in location.state
-				? location.state.returnToHref
-				: undefined;
-	}
-
-	const returnToHref =
-		typeof rawReturnToHref === "string"
-			? getSafeRedirectPath(rawReturnToHref)
-			: null;
-	let resolvedBackLabel = backLabel;
-
-	if (returnToHref?.startsWith("/recommendations")) {
-		resolvedBackLabel = "Back to recommendations";
-	} else if (returnToHref?.startsWith("/all")) {
-		resolvedBackLabel = "Back to all";
-	}
-
-	function handleBackNavigation(): void {
-		const targetHref = returnToHref ?? `/${type}`;
-
-		navigate({
-			href: targetHref,
-			viewTransition: {
-				types: ["media-detail-exit"],
-			},
-		}).catch(() => {
-			return undefined;
-		});
-	}
 
 	function handleWatchNowNavigation(): void {
+		if (onWatchNow) {
+			onWatchNow();
+			return;
+		}
+
 		const watchHref = getBrowseHref(`/${type}/${id}/watch`, {
 			page: "page" in location.search ? (location.search.page ?? 1) : 1,
 			q: "q" in location.search ? (location.search.q ?? "") : "",
@@ -104,23 +76,12 @@ export default function MediaDetailsPage({
 	return (
 		<MediaDetailsPageLayout
 			backdropUrl={backdropUrl}
-			backLabel={resolvedBackLabel}
-			backLinkTransitionStyle={{
-				viewTransitionClass: "media-detail-secondary",
-				viewTransitionName: getMediaViewTransitionName(type, id, "back-link"),
-			}}
 			contentTransitionStyle={{
 				viewTransitionClass: "media-detail-secondary",
 				viewTransitionName: getMediaViewTransitionName(type, id, "content"),
 			}}
-			heroPills={heroPills}
 			homepage={homepage}
 			id={id}
-			metaTransitionStyle={{
-				viewTransitionClass: "media-detail-secondary",
-				viewTransitionName: getMediaViewTransitionName(type, id, "meta"),
-			}}
-			onBackNavigation={handleBackNavigation}
 			onWatchNowNavigation={handleWatchNowNavigation}
 			overview={overview}
 			posterTransitionStyle={{
@@ -128,6 +89,7 @@ export default function MediaDetailsPage({
 				viewTransitionName: getMediaViewTransitionName(type, id, "poster"),
 			}}
 			posterUrl={posterUrl}
+			showWatchProviders={showWatchProviders}
 			tagline={tagline}
 			taglineTransitionStyle={{
 				viewTransitionClass: "media-detail-secondary",
